@@ -1,7 +1,6 @@
 # Webtoons Downloader (wtd)
 
 [![CI](https://github.com/underhax/go-webtoons-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/underhax/go-webtoons-downloader/actions/workflows/ci.yml)
-[![Build](https://github.com/underhax/go-webtoons-downloader/actions/workflows/build.yml/badge.svg)](https://github.com/underhax/go-webtoons-downloader/actions/workflows/build.yml)
 [![Release](https://github.com/underhax/go-webtoons-downloader/actions/workflows/release.yml/badge.svg)](https://github.com/underhax/go-webtoons-downloader/actions/workflows/release.yml)
 [![GitHub last commit](https://img.shields.io/github/last-commit/underhax/go-webtoons-downloader)](https://github.com/underhax/go-webtoons-downloader/commits/main)
 [![GitHub issues](https://img.shields.io/github/issues/underhax/go-webtoons-downloader)](https://github.com/underhax/go-webtoons-downloader/issues)
@@ -19,6 +18,8 @@ A command-line utility and series synchronizer for downloading comics from [WEBT
 - **Zero dependencies:** Standalone static binary with no external runtimes required.
 - **Self-update:** In-place binary self-update (`--update`) from GitHub Releases.
 - **Hardened container stack:** Pre-built `scratch` image and Docker Compose configuration with minimal attack surface, strict isolation, and least-privilege execution.
+
+---
 
 <details>
 <summary><strong>Installation</strong></summary>
