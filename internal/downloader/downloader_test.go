@@ -53,10 +53,10 @@ func mockDownloaderTransport(req *http.Request) (*http.Response, error) {
 		return createHTTPResponse(http.StatusOK, "text/html", body), nil
 
 	case "/p1.jpg":
-		return createHTTPResponse(http.StatusOK, "image/jpeg", "image_bytes_1"), nil
+		return createHTTPResponse(http.StatusOK, "image/jpeg", "\xff\xd8\xffimage_bytes_1"), nil
 
 	case "/p2.jpg":
-		return createHTTPResponse(http.StatusOK, "image/jpeg", "image_bytes_2"), nil
+		return createHTTPResponse(http.StatusOK, "image/jpeg", "\xff\xd8\xffimage_bytes_2"), nil
 
 	default:
 		return createHTTPResponse(http.StatusNotFound, "text/plain", "not found"), nil
@@ -130,10 +130,10 @@ func TestDownloaderFlow(t *testing.T) {
 		t.Fatalf("expected 2 pages saved, got %d", len(mockW.savedPages))
 	}
 
-	if string(mockW.savedPages[0].Data) != "image_bytes_1" || mockW.savedPages[0].Index != 1 {
+	if string(mockW.savedPages[0].Data) != "\xff\xd8\xffimage_bytes_1" || mockW.savedPages[0].Index != 1 {
 		t.Errorf("unexpected page 1 data: %+v", mockW.savedPages[0])
 	}
-	if string(mockW.savedPages[1].Data) != "image_bytes_2" || mockW.savedPages[1].Index != 2 {
+	if string(mockW.savedPages[1].Data) != "\xff\xd8\xffimage_bytes_2" || mockW.savedPages[1].Index != 2 {
 		t.Errorf("unexpected page 2 data: %+v", mockW.savedPages[1])
 	}
 }

@@ -1099,7 +1099,7 @@ func TestClientSecurityEdgeCases(t *testing.T) {
 				if req.URL.String() != "https://www.webtoons.com/img/page1.jpg" {
 					return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(strings.NewReader("bad url"))}, nil
 				}
-				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("data"))}, nil
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("\xff\xd8\xffrel_data"))}, nil
 			}),
 		}
 		client := NewClient(time.Second, WithHTTPClient(httpClient))
@@ -1107,7 +1107,7 @@ func TestClientSecurityEdgeCases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error downloading relative image: %v", err)
 		}
-		if string(data) != "data" {
+		if string(data) != "\xff\xd8\xffrel_data" {
 			t.Errorf("expected data, got %s", string(data))
 		}
 	})
@@ -1119,7 +1119,7 @@ func TestClientSecurityEdgeCases(t *testing.T) {
 				if req.URL.String() != "https://cdn.example.org/img/page1.jpg" {
 					return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(strings.NewReader("bad url"))}, nil
 				}
-				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("data"))}, nil
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("\xff\xd8\xffproto_data"))}, nil
 			}),
 		}
 		client := NewClient(time.Second, WithHTTPClient(httpClient))
@@ -1127,7 +1127,7 @@ func TestClientSecurityEdgeCases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error downloading protocol-relative image: %v", err)
 		}
-		if string(data) != "data" {
+		if string(data) != "\xff\xd8\xffproto_data" {
 			t.Errorf("expected data, got %s", string(data))
 		}
 	})

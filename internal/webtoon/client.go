@@ -29,6 +29,7 @@ var (
 	ErrRateLimitExceeded = errors.New("rate limit exceeded")
 	ErrNoEpisodes        = errors.New("no episodes returned for series")
 	ErrResponseTooLarge  = errors.New("response body exceeds size limit")
+	ErrInvalidImage      = errors.New("invalid image content")
 )
 
 // Client handles network interactions with Webtoons web and API endpoints.
@@ -226,6 +227,10 @@ func (c *Client) DownloadImage(ctx context.Context, imageURL string) ([]byte, er
 	data, err := readBoundedBody(resp.Body, maxImageResponseBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read image body: %w", err)
+	}
+
+	if !strings.HasPrefix(http.DetectContentType(data), "image/") {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidImage, reqURL)
 	}
 
 	return data, nil

@@ -198,7 +198,7 @@ func mockTransport(req *http.Request) (*http.Response, error) {
 		return createHTTPResponse(http.StatusOK, "text/html", body), nil
 
 	case "/img/page1.jpg":
-		return createHTTPResponse(http.StatusOK, "image/jpeg", "image_data_page_1"), nil
+		return createHTTPResponse(http.StatusOK, "image/jpeg", "\xff\xd8\xffimage_data_page_1"), nil
 
 	case "/api/v1/webtoon/999/episodes":
 		return createHTTPResponse(http.StatusOK, "application/json", `{"result":{"episodeList":[]}}`), nil
@@ -289,8 +289,8 @@ func TestClientImagesAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error downloading image: %v", err)
 	}
-	if string(data) != "image_data_page_1" {
-		t.Errorf("expected image payload 'image_data_page_1', got %s", string(data))
+	if string(data) != "\xff\xd8\xffimage_data_page_1" {
+		t.Errorf("expected image payload, got %s", string(data))
 	}
 
 	emptyInfo := &webtoon.SeriesInfo{
@@ -371,6 +371,14 @@ func TestClientErrorScenarios(t *testing.T) {
 		_, err := client.DownloadImage(ctx, "https://www.webtoons.com/img/page1.jpg")
 		if err == nil {
 			t.Fatalf("expected context canceled error")
+		}
+	})
+
+	t.Run("non-image payload rejected in DownloadImage", func(t *testing.T) {
+		t.Parallel()
+		_, err := client.DownloadImage(context.Background(), "https://www.webtoons.com/no_images_viewer")
+		if !errors.Is(err, webtoon.ErrInvalidImage) {
+			t.Fatalf("expected ErrInvalidImage, got %v", err)
 		}
 	})
 }
