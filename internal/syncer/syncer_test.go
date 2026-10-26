@@ -47,6 +47,14 @@ func mockSyncerTransport(req *http.Request) (*http.Response, error) {
 	case "/en/broken/slug/list":
 		return createHTTPResponse(http.StatusInternalServerError, "text/plain", "broken server"), nil
 
+	case "/en/forbidden/slug/list":
+		return createHTTPResponse(http.StatusForbidden, "text/plain", "forbidden by waf"), nil
+
+	case "/en/ratelimited/slug/list":
+		resp := createHTTPResponse(http.StatusTooManyRequests, "text/plain", "too many requests")
+		resp.Header.Set("Retry-After", "120")
+		return resp, nil
+
 	case "/en/fantasy/tower/viewer":
 		body := `<div class="viewer_img _img_viewer_area"><img data-url="https://www.webtoons.com/img/p1.jpg"></div>`
 		return createHTTPResponse(http.StatusOK, "text/html", body), nil
@@ -77,6 +85,10 @@ func createHTTPResponse(status int, contentType, body string) *http.Response {
 	}
 }
 
+func mockInstantSleep(ctx context.Context, _ time.Duration) bool {
+	return ctx.Err() == nil
+}
+
 func TestSyncerBatchAndDelta(t *testing.T) {
 	t.Parallel()
 
@@ -95,6 +107,7 @@ func TestSyncerBatchAndDelta(t *testing.T) {
 		5*time.Second,
 		webtoon.WithBaseURLs("https://www.webtoons.com", "https://m.webtoons.com"),
 		webtoon.WithHTTPClient(httpClient),
+		webtoon.WithSleepFunc(mockInstantSleep),
 	)
 
 	cfg := &config.Config{
@@ -157,6 +170,7 @@ func TestSyncerSingleURLAndIndexNotFound(t *testing.T) {
 		5*time.Second,
 		webtoon.WithBaseURLs("https://www.webtoons.com", "https://m.webtoons.com"),
 		webtoon.WithHTTPClient(httpClient),
+		webtoon.WithSleepFunc(mockInstantSleep),
 	)
 
 	cfg := &config.Config{
@@ -233,6 +247,7 @@ func TestSyncerFailureReporting(t *testing.T) {
 		5*time.Second,
 		webtoon.WithBaseURLs("https://www.webtoons.com", "https://m.webtoons.com"),
 		webtoon.WithHTTPClient(httpClient),
+		webtoon.WithSleepFunc(mockInstantSleep),
 	)
 
 	cfg := &config.Config{
@@ -263,6 +278,70 @@ func TestSyncerFailureReporting(t *testing.T) {
 	ch1 := filepath.Join(seriesFolder, "001.pdf")
 	if _, statErr := os.Stat(ch1); statErr != nil {
 		t.Errorf("expected successful title 2 to be downloaded despite title 1 failure: %v", statErr)
+	}
+}
+
+func TestSyncerFatalErrorsAbortBatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		expectCause error
+		name        string
+		firstLink   string
+	}{
+		{
+			expectCause: webtoon.ErrAccessBlocked,
+			name:        "403 forbidden aborts remaining links",
+			firstLink:   "https://www.webtoons.com/en/forbidden/slug/list?title_no=9998",
+		},
+		{
+			expectCause: webtoon.ErrRateLimitExceeded,
+			name:        "429 long retry after aborts remaining links",
+			firstLink:   "https://www.webtoons.com/en/ratelimited/slug/list?title_no=9997",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tempDir := t.TempDir()
+			linksFile := filepath.Join(tempDir, "fatal_links.txt")
+			content := tc.firstLink + "\nhttps://www.webtoons.com/en/fantasy/tower/list?title_no=95\n"
+			if err := os.WriteFile(linksFile, []byte(content), 0o600); err != nil {
+				t.Fatalf("failed to write fatal_links: %v", err)
+			}
+
+			client := webtoon.NewClient(
+				5*time.Second,
+				webtoon.WithBaseURLs("https://www.webtoons.com", "https://m.webtoons.com"),
+				webtoon.WithHTTPClient(&http.Client{Transport: roundTripFunc(mockSyncerTransport)}),
+			)
+
+			cfg := &config.Config{
+				Directory:   tempDir,
+				LinksFile:   linksFile,
+				Format:      config.FormatPDF,
+				Concurrency: 1,
+				Timeout:     5 * time.Second,
+			}
+
+			var logBuf bytes.Buffer
+			syncInstance, err := syncer.New(cfg, client, &logBuf)
+			if err != nil {
+				t.Fatalf("unexpected error creating syncer: %v", err)
+			}
+
+			err = syncInstance.Run(context.Background())
+			if !errors.Is(err, syncer.ErrSyncFailure) || !errors.Is(err, tc.expectCause) {
+				t.Fatalf("expected ErrSyncFailure wrapping %v, got %v", tc.expectCause, err)
+			}
+
+			secondTitleFolder := filepath.Join(tempDir, "002. tower")
+			if _, statErr := os.Stat(secondTitleFolder); statErr == nil {
+				t.Errorf("expected title 2 not to be processed after fatal error on title 1")
+			}
+		})
 	}
 }
 
@@ -439,6 +518,7 @@ func runSyncerReportingCase(t *testing.T, tc *reportTestCase) {
 		5*time.Second,
 		webtoon.WithBaseURLs("https://www.webtoons.com", "https://m.webtoons.com"),
 		webtoon.WithHTTPClient(httpClient),
+		webtoon.WithSleepFunc(mockInstantSleep),
 	)
 
 	targetURL := fmt.Sprintf("https://www.webtoons.com/en/fantasy/%s/list?title_no=%d", seriesSlug, tc.titleNo)
@@ -521,6 +601,7 @@ func TestSyncerImagesFormatDefaultSeriesJSON(t *testing.T) {
 		5*time.Second,
 		webtoon.WithBaseURLs("https://www.webtoons.com", "https://m.webtoons.com"),
 		webtoon.WithHTTPClient(httpClient),
+		webtoon.WithSleepFunc(mockInstantSleep),
 	)
 
 	cfg := &config.Config{
@@ -574,6 +655,7 @@ func TestSyncerInvalidFormatAndSilent(t *testing.T) {
 		5*time.Second,
 		webtoon.WithBaseURLs("https://www.webtoons.com", "https://m.webtoons.com"),
 		webtoon.WithHTTPClient(httpClient),
+		webtoon.WithSleepFunc(mockInstantSleep),
 	)
 
 	var logBuf bytes.Buffer

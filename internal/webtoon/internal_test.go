@@ -141,11 +141,19 @@ func mockRetryCloseFailTransport(_ *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-func TestParseRateLimitDelayTable(t *testing.T) {
-	t.Parallel()
+func fixedTestTime() time.Time {
+	return time.Date(2026, time.October, 26, 12, 0, 0, 0, time.UTC)
+}
 
-	futureTime := time.Now().Add(10 * time.Second)
-	pastTime := time.Now().Add(-10 * time.Second)
+func TestParseRateLimitDelayTable(t *testing.T) {
+	origNow := timeNow
+	timeNow = fixedTestTime
+	defer func() {
+		timeNow = origNow
+	}()
+
+	futureTime := fixedTestTime().Add(10 * time.Second)
+	pastTime := fixedTestTime().Add(-10 * time.Second)
 	fallback := 3 * time.Second
 
 	tests := []struct {
@@ -160,6 +168,12 @@ func TestParseRateLimitDelayTable(t *testing.T) {
 			minDelay:     5 * time.Second,
 			name:         "retry after seconds valid",
 			headerVal:    "5",
+			isRetryAfter: true,
+		},
+		{
+			minDelay:     maxParseableRetryDuration,
+			name:         "retry after huge seconds capped without overflow",
+			headerVal:    "9223372037",
 			isRetryAfter: true,
 		},
 		{
@@ -188,6 +202,13 @@ func TestParseRateLimitDelayTable(t *testing.T) {
 			isFallback: false,
 		},
 		{
+			minDelay:   maxParseableRetryDuration,
+			name:       "rate limit reset huge unix timestamp capped without overflow",
+			headerVal:  "9223372036854775807",
+			isReset:    true,
+			isFallback: false,
+		},
+		{
 			name:       "rate limit reset in past falls back",
 			headerVal:  strconv.FormatInt(pastTime.Unix(), 10),
 			isReset:    true,
@@ -207,8 +228,6 @@ func TestParseRateLimitDelayTable(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			resp := &http.Response{Header: make(http.Header)}
 			if tc.isRetryAfter {
 				resp.Header.Set("Retry-After", tc.headerVal)
@@ -486,7 +505,7 @@ func TestClientBackoffErrors(t *testing.T) {
 		client := NewClient(
 			time.Second,
 			WithHTTPClient(&http.Client{Transport: mockRoundTripFunc(mockRateLimitTransport)}),
-			withSleepFunc(mockInstantSleepContext),
+			WithSleepFunc(mockInstantSleepContext),
 		)
 		resp, err := client.executeWithRetry(context.Background(), "https://www.example.com", "")
 		if resp != nil {
@@ -496,6 +515,9 @@ func TestClientBackoffErrors(t *testing.T) {
 		}
 		if err == nil || !strings.Contains(err.Error(), "request exceeded max retries") {
 			t.Errorf("expected exceeded max retries error, got %v", err)
+		}
+		if !errors.Is(err, ErrRateLimitExceeded) || !errors.Is(err, ErrUnexpectedStatus) {
+			t.Errorf("expected ErrRateLimitExceeded and ErrUnexpectedStatus, got %v", err)
 		}
 	})
 
@@ -519,6 +541,75 @@ func TestClientBackoffErrors(t *testing.T) {
 	})
 }
 
+func TestClientRateLimitAndForbiddenAbort(t *testing.T) {
+	t.Parallel()
+
+	t.Run("executeWithRetry rate limit 429 aborts immediately when retry delay exceeds 1m", func(t *testing.T) {
+		t.Parallel()
+		attempts := 0
+		sleepCalled := false
+		longWaitTransport := func(_ *http.Request) (*http.Response, error) {
+			attempts++
+			return &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Retry-After": []string{"120"}},
+				Body:       io.NopCloser(strings.NewReader("rate limited long")),
+			}, nil
+		}
+		client := NewClient(
+			time.Second,
+			WithHTTPClient(&http.Client{Transport: mockRoundTripFunc(longWaitTransport)}),
+			WithSleepFunc(func(_ context.Context, _ time.Duration) bool {
+				sleepCalled = true
+				return true
+			}),
+		)
+		resp, err := client.executeWithRetry(context.Background(), "https://longwait.example.com", "")
+		if resp != nil {
+			if cerr := resp.Body.Close(); cerr != nil {
+				t.Errorf("unexpected close error: %v", cerr)
+			}
+		}
+		if !errors.Is(err, ErrRateLimitExceeded) || !errors.Is(err, ErrUnexpectedStatus) {
+			t.Fatalf("expected ErrRateLimitExceeded and ErrUnexpectedStatus, got %v", err)
+		}
+		if attempts != 1 {
+			t.Errorf("expected 1 attempt without retry, got %d", attempts)
+		}
+		if sleepCalled {
+			t.Errorf("expected sleep not to be called when retry delay exceeds limit")
+		}
+	})
+
+	t.Run("executeWithRetry 403 forbidden returns ErrAccessBlocked immediately", func(t *testing.T) {
+		t.Parallel()
+		attempts := 0
+		forbiddenTransport := func(_ *http.Request) (*http.Response, error) {
+			attempts++
+			return &http.Response{
+				StatusCode: http.StatusForbidden,
+				Body:       io.NopCloser(strings.NewReader("forbidden")),
+			}, nil
+		}
+		client := NewClient(
+			time.Second,
+			WithHTTPClient(&http.Client{Transport: mockRoundTripFunc(forbiddenTransport)}),
+		)
+		resp, err := client.executeWithRetry(context.Background(), "https://forbidden.example.com", "")
+		if resp != nil {
+			if cerr := resp.Body.Close(); cerr != nil {
+				t.Errorf("unexpected close error: %v", cerr)
+			}
+		}
+		if !errors.Is(err, ErrAccessBlocked) || !errors.Is(err, ErrUnexpectedStatus) {
+			t.Fatalf("expected ErrAccessBlocked and ErrUnexpectedStatus, got %v", err)
+		}
+		if attempts != 1 {
+			t.Errorf("expected 1 attempt for 403, got %d", attempts)
+		}
+	})
+}
+
 func TestClientAdditionalEdgeCases(t *testing.T) {
 	t.Parallel()
 
@@ -536,7 +627,7 @@ func TestClientAdditionalEdgeCases(t *testing.T) {
 		client := NewClient(
 			time.Second,
 			WithHTTPClient(&http.Client{Transport: mockRoundTripFunc(mockFailingChapterViewerTransport)}),
-			withSleepFunc(mockInstantSleepContext),
+			WithSleepFunc(mockInstantSleepContext),
 		)
 		_, err := client.FetchChapterImageURLs(context.Background(), "https://www.webtoons.com/viewer")
 		if err == nil || !strings.Contains(err.Error(), "fetch chapter viewer") {
@@ -550,7 +641,7 @@ func TestClientAdditionalEdgeCases(t *testing.T) {
 		client := NewClient(
 			time.Second,
 			WithHTTPClient(&http.Client{Transport: mockRoundTripFunc(holder.roundTripRetryThenSuccess)}),
-			withSleepFunc(mockInstantSleepContext),
+			WithSleepFunc(mockInstantSleepContext),
 		)
 		resp, err := client.executeWithRetry(context.Background(), "https://www.example.com/retry-success", "")
 		if err != nil {

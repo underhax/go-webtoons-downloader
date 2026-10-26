@@ -73,6 +73,10 @@ func createHTTPResponse(status int, contentType, body string) *http.Response {
 	}
 }
 
+func mockInstantDownloaderSleep(ctx context.Context, _ time.Duration) bool {
+	return ctx.Err() == nil
+}
+
 func TestDownloaderFlow(t *testing.T) {
 	t.Parallel()
 
@@ -84,6 +88,7 @@ func TestDownloaderFlow(t *testing.T) {
 		5*time.Second,
 		webtoon.WithBaseURLs("https://www.example.com", "https://m.example.com"),
 		webtoon.WithHTTPClient(httpClient),
+		webtoon.WithSleepFunc(mockInstantDownloaderSleep),
 	)
 
 	mockW := &recordingWriter{}
@@ -144,6 +149,7 @@ func TestDownloaderErrors(t *testing.T) {
 		5*time.Second,
 		webtoon.WithBaseURLs("https://www.example.com", "https://m.example.com"),
 		webtoon.WithHTTPClient(httpClient),
+		webtoon.WithSleepFunc(mockInstantDownloaderSleep),
 	)
 
 	mockErr := errors.New("write failure")
@@ -173,6 +179,7 @@ func TestDownloaderScenarios(t *testing.T) {
 		5*time.Second,
 		webtoon.WithBaseURLs("https://www.example.com", "https://m.example.com"),
 		webtoon.WithHTTPClient(httpClient),
+		webtoon.WithSleepFunc(mockInstantDownloaderSleep),
 	)
 
 	t.Run("default concurrency fallback", func(t *testing.T) {

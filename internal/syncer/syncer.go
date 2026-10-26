@@ -126,6 +126,9 @@ func (s *Syncer) syncAllEntries(ctx context.Context, entries []LinkEntry) error 
 			if _, werr := fmt.Fprintf(s.out, "[ERROR] Title %d (%s) failed: %v\n", entry.Index, entry.URL, err); werr != nil {
 				return fmt.Errorf("write error log: %w", werr)
 			}
+			if isFatalSyncError(err) {
+				return fmt.Errorf("%w: aborted on title %d: %w", ErrSyncFailure, entry.Index, err)
+			}
 		}
 	}
 
@@ -134,6 +137,10 @@ func (s *Syncer) syncAllEntries(ctx context.Context, entries []LinkEntry) error 
 	}
 
 	return nil
+}
+
+func isFatalSyncError(err error) bool {
+	return errors.Is(err, webtoon.ErrAccessBlocked) || errors.Is(err, webtoon.ErrRateLimitExceeded)
 }
 
 func (s *Syncer) syncSingleURL(ctx context.Context, seriesURL string, index, manualStart int) error {

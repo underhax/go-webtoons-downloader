@@ -24,9 +24,11 @@ const (
 
 // Sentinels returned when Webtoon API or network interactions fail.
 var (
-	ErrUnexpectedStatus = errors.New("unexpected http status")
-	ErrNoEpisodes       = errors.New("no episodes returned for series")
-	ErrResponseTooLarge = errors.New("response body exceeds size limit")
+	ErrUnexpectedStatus  = errors.New("unexpected http status")
+	ErrAccessBlocked     = errors.New("access blocked by server")
+	ErrRateLimitExceeded = errors.New("rate limit exceeded")
+	ErrNoEpisodes        = errors.New("no episodes returned for series")
+	ErrResponseTooLarge  = errors.New("response body exceeds size limit")
 )
 
 // Client handles network interactions with Webtoons web and API endpoints.
@@ -60,7 +62,8 @@ func WithHTTPClient(httpClient *http.Client) ClientOption {
 	}
 }
 
-func withSleepFunc(fn func(context.Context, time.Duration) bool) ClientOption {
+// WithSleepFunc overrides the sleep function used between retry attempts.
+func WithSleepFunc(fn func(context.Context, time.Duration) bool) ClientOption {
 	return func(c *Client) {
 		c.sleepFn = fn
 	}
@@ -290,29 +293,51 @@ func (c *Client) executeWithRetry(ctx context.Context, targetURL, referer string
 			return resp, nil
 		}
 
-		action := ClassifyStatus(resp.StatusCode)
-		if action == ActionAbort {
-			if cerr := resp.Body.Close(); cerr != nil && !errors.Is(cerr, http.ErrBodyReadAfterClose) {
-				return nil, fmt.Errorf("close aborted response body: %w", cerr)
-			}
-			return nil, fmt.Errorf("%w: status %d for %s", ErrUnexpectedStatus, resp.StatusCode, targetURL)
+		delay, retryErr := handleNonOKResponse(resp, attempt, targetURL)
+		if retryErr != nil {
+			return nil, retryErr
 		}
-
-		delay := RetryDelay(action, attempt, defaultBaseRetryDelay)
-		if action == ActionRateLimit {
-			delay = parseRateLimitDelay(resp, delay)
-		}
-
-		if cerr := resp.Body.Close(); cerr != nil && !errors.Is(cerr, http.ErrBodyReadAfterClose) {
-			return nil, fmt.Errorf("close retry response body: %w", cerr)
-		}
-		lastErr = fmt.Errorf("%w: status %d for %s", ErrUnexpectedStatus, resp.StatusCode, targetURL)
+		lastErr = formatStatusError(resp.StatusCode, targetURL)
 		if !c.sleep(ctx, delay) {
 			return nil, fmt.Errorf("context canceled during backoff: %w", ctx.Err())
 		}
 	}
 
 	return nil, fmt.Errorf("request exceeded max retries: %w", lastErr)
+}
+
+func handleNonOKResponse(resp *http.Response, attempt int, targetURL string) (time.Duration, error) {
+	action := ClassifyStatus(resp.StatusCode)
+	if action == ActionAbort {
+		if cerr := resp.Body.Close(); cerr != nil && !errors.Is(cerr, http.ErrBodyReadAfterClose) {
+			return 0, fmt.Errorf("close aborted response body: %w", cerr)
+		}
+		return 0, formatStatusError(resp.StatusCode, targetURL)
+	}
+
+	delay := RetryDelay(action, attempt, defaultBaseRetryDelay)
+	if action == ActionRateLimit {
+		delay = parseRateLimitDelay(resp, delay)
+	}
+
+	if cerr := resp.Body.Close(); cerr != nil && !errors.Is(cerr, http.ErrBodyReadAfterClose) {
+		return 0, fmt.Errorf("close retry response body: %w", cerr)
+	}
+	if action == ActionRateLimit && delay > maxRateLimitWait {
+		return 0, fmt.Errorf("%w: %w: retry delay %v exceeds %v limit for %s", ErrRateLimitExceeded, ErrUnexpectedStatus, delay, maxRateLimitWait, targetURL)
+	}
+	return delay, nil
+}
+
+func formatStatusError(statusCode int, targetURL string) error {
+	switch statusCode {
+	case http.StatusForbidden:
+		return fmt.Errorf("%w: %w: status %d for %s", ErrAccessBlocked, ErrUnexpectedStatus, statusCode, targetURL)
+	case http.StatusTooManyRequests:
+		return fmt.Errorf("%w: %w: status %d for %s", ErrRateLimitExceeded, ErrUnexpectedStatus, statusCode, targetURL)
+	default:
+		return fmt.Errorf("%w: status %d for %s", ErrUnexpectedStatus, statusCode, targetURL)
+	}
 }
 
 func defaultCheckRedirect(req *http.Request, via []*http.Request) error {

@@ -69,15 +69,19 @@ func (d *Downloader) DownloadChapter(ctx context.Context, chapter webtoon.Chapte
 }
 
 func (d *Downloader) downloadPages(ctx context.Context, imageURLs []string, hooks *ChapterHooks) ([]writer.Page, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	total := len(imageURLs)
 	pages := make([]writer.Page, total)
-	errChan := make(chan error, total)
+	errChan := make(chan error, total+1)
 	sem := make(chan struct{}, d.concurrency)
 	var wg sync.WaitGroup
 
 	for i, imgURL := range imageURLs {
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("context canceled before starting page %d: %w", i+1, err)
+			errChan <- fmt.Errorf("context canceled before starting page %d: %w", i+1, err)
+			break
 		}
 
 		wg.Add(1)
@@ -104,6 +108,7 @@ func (d *Downloader) downloadPages(ctx context.Context, imageURLs []string, hook
 			data, err := d.client.DownloadImage(ctx, url)
 			if err != nil {
 				errChan <- fmt.Errorf("download page %d: %w", index+1, err)
+				cancel()
 				return
 			}
 

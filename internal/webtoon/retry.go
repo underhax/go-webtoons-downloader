@@ -8,9 +8,12 @@ import (
 )
 
 const (
-	maxBackoff            = 30 * time.Second
-	defaultMaxRetries     = 4
-	defaultBaseRetryDelay = 1 * time.Second
+	maxBackoff                = 30 * time.Second
+	maxRateLimitWait          = 1 * time.Minute
+	maxParseableRetrySecs     = 365 * 24 * 60 * 60
+	maxParseableRetryDuration = time.Duration(maxParseableRetrySecs) * time.Second
+	defaultMaxRetries         = 4
+	defaultBaseRetryDelay     = 1 * time.Second
 )
 
 // ResponseAction indicates how the client should react to an HTTP status code.
@@ -73,22 +76,25 @@ func RetryDelay(action ResponseAction, attempt int, baseDelay time.Duration) tim
 	}
 }
 
+var timeNow = time.Now
+
 func parseRateLimitDelay(resp *http.Response, fallback time.Duration) time.Duration {
 	if retryAfterStr := resp.Header.Get("Retry-After"); retryAfterStr != "" {
 		if retryAfterSecs, err := strconv.Atoi(retryAfterStr); err == nil && retryAfterSecs > 0 {
-			return time.Duration(retryAfterSecs)*time.Second + time.Second
+			return time.Duration(min(retryAfterSecs, maxParseableRetrySecs))*time.Second + time.Second
 		}
 		if targetTime, err := http.ParseTime(retryAfterStr); err == nil {
-			if diff := time.Until(targetTime); diff > 0 {
-				return diff + time.Second
+			if diff := targetTime.Sub(timeNow()); diff > 0 {
+				return min(diff, maxParseableRetryDuration) + time.Second
 			}
 		}
 	}
 	if resetStr := resp.Header.Get("X-RateLimit-Reset"); resetStr != "" {
 		if resetUnix, err := strconv.ParseInt(resetStr, 10, 64); err == nil {
-			resetTime := time.Unix(resetUnix, 0)
-			if timeUntil := time.Until(resetTime); timeUntil > 0 {
-				return timeUntil + time.Second
+			nowUnix := timeNow().Unix()
+			if resetUnix > nowUnix {
+				diffSecs := min(resetUnix-nowUnix, maxParseableRetrySecs)
+				return time.Duration(diffSecs)*time.Second + time.Second
 			}
 		}
 	}

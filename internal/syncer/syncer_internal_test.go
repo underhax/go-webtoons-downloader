@@ -62,6 +62,10 @@ func mockFailingDetectLastChapter(_, _ string) (int, error) {
 	return 0, errors.New("simulated detect last chapter failure")
 }
 
+func mockInstantInternalSleep(ctx context.Context, _ time.Duration) bool {
+	return ctx.Err() == nil
+}
+
 func mockFailingEpisodesTransport(req *http.Request) (*http.Response, error) {
 	if strings.Contains(req.URL.Path, "episodes") {
 		return makeSyncerResponse(http.StatusInternalServerError, "", strings.NewReader("server error")), nil
@@ -887,6 +891,7 @@ func TestSyncSingleURLDownloadAndNamingBranches(t *testing.T) {
 			5*time.Second,
 			webtoon.WithBaseURLs("https://www.webtoons.com", "https://m.webtoons.com"),
 			webtoon.WithHTTPClient(&http.Client{Transport: syncerInternalRoundTripFunc(mockFailingEpisodesTransport)}),
+			webtoon.WithSleepFunc(mockInstantInternalSleep),
 		)
 		s := &Syncer{
 			cfg: &config.Config{
@@ -908,6 +913,7 @@ func TestSyncSingleURLDownloadAndNamingBranches(t *testing.T) {
 			5*time.Second,
 			webtoon.WithBaseURLs("https://www.webtoons.com", "https://m.webtoons.com"),
 			webtoon.WithHTTPClient(&http.Client{Transport: syncerInternalRoundTripFunc(mockFailingViewerTransport)}),
+			webtoon.WithSleepFunc(mockInstantInternalSleep),
 		)
 		badDl := downloader.New(badClient, w, 1, 0)
 		s := &Syncer{
