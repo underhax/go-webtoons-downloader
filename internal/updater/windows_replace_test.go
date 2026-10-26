@@ -60,6 +60,12 @@ func TestReplaceWindows(t *testing.T) {
 			errContains: "wtd.exe not found in archive",
 		},
 		{
+			name:        "directory_entry_skipped_win",
+			body:        bytes.NewBuffer(createDummyZip(t, "wtd.exe/", "")),
+			wantErr:     true,
+			errContains: "wtd.exe not found in archive",
+		},
+		{
 			name: "rename_permission_denied_win",
 			body: bytes.NewBuffer(validArchive),
 			mockRename: func(_, _ string) error {

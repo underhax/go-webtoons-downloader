@@ -66,6 +66,12 @@ func TestReplacePOSIX(t *testing.T) {
 			errContains: "wtd executable not found in archive",
 		},
 		{
+			name:        "directory_entry_skipped_posix",
+			body:        bytes.NewBuffer(createDummyTarGz(t, "wtd/", "")),
+			wantErr:     true,
+			errContains: "wtd executable not found in archive",
+		},
+		{
 			name:        "tar_reading_error",
 			body:        bytes.NewBuffer(validGzNoTar),
 			wantErr:     true,

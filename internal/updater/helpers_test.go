@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -31,10 +32,16 @@ func createDummyTarGz(t *testing.T, filename, content string) []byte {
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
 
+	typeflag := byte(tar.TypeReg)
+	if strings.HasSuffix(filename, "/") {
+		typeflag = tar.TypeDir
+	}
+
 	hdr := &tar.Header{
-		Name: filename,
-		Mode: 0o755,
-		Size: int64(len(content)),
+		Name:     filename,
+		Mode:     0o755,
+		Size:     int64(len(content)),
+		Typeflag: typeflag,
 	}
 	if err := tw.WriteHeader(hdr); err != nil {
 		t.Fatalf("failed to write tar header: %v", err)

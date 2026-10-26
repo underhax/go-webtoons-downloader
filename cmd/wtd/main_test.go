@@ -51,7 +51,10 @@ func mockRunFailure(_ []string) error {
 	return errors.New("simulated run failure")
 }
 
-func mockUpdateSuccess(_ context.Context, _ *http.Client, _ string) error {
+func mockUpdateSuccess(_ context.Context, client *http.Client, _ string) error {
+	if client == nil || client.Timeout != updateTimeout {
+		return errors.New("unexpected update client timeout")
+	}
 	return nil
 }
 

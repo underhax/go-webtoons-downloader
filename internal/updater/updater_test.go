@@ -477,6 +477,23 @@ func TestFetchLatestReleaseAndDownloadAssetErrors(t *testing.T) {
 			t.Errorf("expected failed to read downloaded asset error, got: %v", err)
 		}
 	})
+
+	t.Run("downloadAndVerifyAsset missing sha256 prefix", func(t *testing.T) {
+		payload := []byte("valid-asset-bytes")
+		sum := sha256.Sum256(payload)
+		rawDigestWithoutPrefix := hex.EncodeToString(sum[:])
+
+		client := newMockClient(func(_ *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(payload)),
+			}, nil
+		})
+		_, err := downloadAndVerifyAsset(context.Background(), client, "https://example.org/asset", rawDigestWithoutPrefix)
+		if err == nil {
+			t.Errorf("expected error for digest without sha256 prefix, got nil")
+		}
+	})
 }
 
 func TestReplacePOSIXCorruptedTarAndDeferClose(t *testing.T) {

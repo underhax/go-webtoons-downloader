@@ -232,8 +232,8 @@ func downloadAndVerifyAsset(ctx context.Context, client *http.Client, url, expec
 
 	hash := sha256.Sum256(bodyBytes)
 	actualHash := hex.EncodeToString(hash[:])
-	expectedHashStr := strings.TrimPrefix(expectedDigest, "sha256:")
-	if actualHash != expectedHashStr {
+	expectedHashStr, hasPrefix := strings.CutPrefix(expectedDigest, "sha256:")
+	if !hasPrefix || actualHash != expectedHashStr {
 		return nil, fmt.Errorf("downloaded file checksum mismatch (expected: %s, got: %s)", expectedHashStr, actualHash)
 	}
 	return bodyBytes, nil
@@ -280,7 +280,7 @@ func replacePOSIX(body io.Reader, execPath string) error {
 		}
 
 		baseName := filepath.Base(hdr.Name)
-		if baseName != "wtd" {
+		if hdr.Typeflag != tar.TypeReg || baseName != "wtd" {
 			continue
 		}
 
@@ -307,7 +307,7 @@ func replaceWindows(body io.Reader, execPath string) error {
 		}
 
 		baseName := filepath.Base(file.Name)
-		if baseName != "wtd.exe" {
+		if file.FileInfo().IsDir() || baseName != "wtd.exe" {
 			continue
 		}
 

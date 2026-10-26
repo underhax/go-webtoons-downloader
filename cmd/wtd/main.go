@@ -11,12 +11,15 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/underhax/go-webtoons-downloader/internal/config"
 	"github.com/underhax/go-webtoons-downloader/internal/syncer"
 	"github.com/underhax/go-webtoons-downloader/internal/updater"
 	"github.com/underhax/go-webtoons-downloader/internal/webtoon"
 )
+
+const updateTimeout = 5 * time.Minute
 
 // AppVersion holds the release version string, overridden at link time via -ldflags.
 var AppVersion = "dev"
@@ -93,7 +96,7 @@ func run(args []string) error {
 	}
 
 	if cfg.Update {
-		if uerr := updateFunc(ctx, http.DefaultClient, AppVersion); uerr != nil {
+		if uerr := updateFunc(ctx, &http.Client{Timeout: updateTimeout}, AppVersion); uerr != nil {
 			return fmt.Errorf("self-update: %w", uerr)
 		}
 		return nil
