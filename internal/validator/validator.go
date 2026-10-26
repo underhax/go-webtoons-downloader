@@ -16,7 +16,7 @@ import (
 var (
 	ErrInvalidFormat      = errors.New("invalid output format")
 	ErrInvalidNaming      = errors.New("invalid naming style (must be 'slug' or 'title')")
-	ErrInvalidConcurrency = errors.New("concurrency must be at least 1")
+	ErrInvalidConcurrency = fmt.Errorf("concurrency must be between 1 and %d", maxConcurrency)
 	ErrInvalidDelay       = errors.New("delay cannot be negative")
 	ErrInvalidTimeout     = errors.New("timeout must be greater than 0")
 	ErrInvalidIndex       = errors.New("index must be at least 1")
@@ -38,6 +38,8 @@ const (
 
 	NamingSlug  = "slug"
 	NamingTitle = "title"
+
+	maxConcurrency = 200
 )
 
 // Filesystem resolution hooks replaceable for OS-independent unit testing.
@@ -66,9 +68,9 @@ func ValidateNaming(naming string) error {
 	}
 }
 
-// ValidateConcurrency prevents worker pool starvation or invalid negative limits.
+// ValidateConcurrency prevents worker pool starvation, excessive parallelism, or invalid negative limits.
 func ValidateConcurrency(concurrency int) error {
-	if concurrency < 1 {
+	if concurrency < 1 || concurrency > maxConcurrency {
 		return ErrInvalidConcurrency
 	}
 	return nil

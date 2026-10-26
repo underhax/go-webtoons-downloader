@@ -69,8 +69,14 @@ func TestNumericAndURLValidators(t *testing.T) {
 	if err := ValidateConcurrency(1); err != nil {
 		t.Fatalf("expected concurrency 1 to be valid, got %v", err)
 	}
+	if err := ValidateConcurrency(maxConcurrency); err != nil {
+		t.Fatalf("expected concurrency %d to be valid, got %v", maxConcurrency, err)
+	}
 	if err := ValidateConcurrency(0); !errors.Is(err, ErrInvalidConcurrency) {
-		t.Fatalf("expected ErrInvalidConcurrency, got %v", err)
+		t.Fatalf("expected ErrInvalidConcurrency for 0, got %v", err)
+	}
+	if err := ValidateConcurrency(maxConcurrency + 1); !errors.Is(err, ErrInvalidConcurrency) {
+		t.Fatalf("expected ErrInvalidConcurrency for %d, got %v", maxConcurrency+1, err)
 	}
 
 	if err := ValidateDelay(0); err != nil {

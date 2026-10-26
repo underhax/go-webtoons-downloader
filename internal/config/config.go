@@ -243,7 +243,7 @@ Global Options (apply to both --url and --links):
   -d, --dir <PATH>                  Target storage directory (env: WEBTOONS_DIR, default: ./data/webtoons)
   -f, --format <pdf|cbz|zip|images> Output format (env: WEBTOONS_FORMAT, default: pdf)
       --naming <slug|title>         Folder naming style: URL slug or official title (env: WEBTOONS_NAMING, default: slug)
-  -c, --concurrency <NUMBER>        Concurrent page downloads (env: WEBTOONS_CONCURRENCY, default: 120)
+  -c, --concurrency <NUMBER>        Concurrent page downloads (1-200) (env: WEBTOONS_CONCURRENCY, default: 120)
       --delay <DURATION<ms|s|m>>    Request delay to avoid rate limiting (default: 0s) (env: WEBTOONS_DELAY)
       --timeout <DURATION<ms|s|m>>  Network request timeout (default: 30s) (env: WEBTOONS_TIMEOUT)
   -q, --silent                      Silent mode, suppress progress output (env: WEBTOONS_SILENT)

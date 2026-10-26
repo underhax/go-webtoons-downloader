@@ -175,8 +175,13 @@ func TestParseFlagsTable(t *testing.T) {
 		},
 		{
 			expectErr: config.ErrInvalidConcurrency,
-			name:      "invalid concurrency failure",
+			name:      "invalid concurrency zero failure",
 			args:      []string{"--concurrency", "0"},
+		},
+		{
+			expectErr: config.ErrInvalidConcurrency,
+			name:      "invalid concurrency above max failure",
+			args:      []string{"--concurrency", "201"},
 		},
 		{
 			expectErr: nil,
