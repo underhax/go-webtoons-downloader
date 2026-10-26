@@ -1,0 +1,12 @@
+[Unit]
+Description=Webtoons Downloader Synchronization Timer
+Documentation=https://github.com/underhax/go-webtoons-downloader
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=wtd.service
+
+[Install]
+WantedBy=timers.target

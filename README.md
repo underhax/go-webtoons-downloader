@@ -158,6 +158,46 @@ sudo crontab -e
 0 */6 * * * docker compose -f /home/wtd/docker-compose.yaml --profile tools run --rm -T wtd --silent >> /home/wtd/cron.log 2>&1
 ```
 
+### 7. Scheduled Synchronization (Systemd Timer)
+
+For production Linux environments, running synchronization via a hardened systemd timer and service is recommended over Cron. It provides centralized logging through `journald`, prevents overlapping runs, executes missed runs after system reboots (`Persistent=true`), and enforces strict sandboxing (`ProtectSystem=strict`, zero capabilities, isolated `/dev`).
+
+Fetch and install the systemd unit files:
+
+```bash
+REPO="https://raw.githubusercontent.com/underhax/go-webtoons-downloader/main"
+
+sudo curl -fsSL ${REPO}/etc/systemd/system/wtd.service -o /etc/systemd/system/wtd.service
+sudo curl -fsSL ${REPO}/etc/systemd/system/wtd.timer -o /etc/systemd/system/wtd.timer
+sudo chmod 0644 /etc/systemd/system/wtd.{service,timer}
+sudo chown root:root /etc/systemd/system/wtd.{service,timer}
+```
+
+*(If your deployment directory differs from `/home/wtd`, adjust `WorkingDirectory` in `/etc/systemd/system/wtd.service` before starting).*
+
+Reload systemd and enable the timer:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now wtd.timer
+```
+
+Verify the timer status and scheduled execution:
+
+```bash
+systemctl list-timers wtd.timer
+```
+
+To run an on-demand synchronization or inspect output logs:
+
+```bash
+# Trigger immediate synchronization
+sudo systemctl start wtd.service
+
+# Inspect service logs
+journalctl -u wtd.service -e
+```
+
 </details>
 
 ---
