@@ -27,9 +27,10 @@ var (
 )
 
 const (
-	osWindows                = "windows"
-	maxMetadataResponseBytes = 10 << 20
-	maxAssetResponseBytes    = 64 << 20
+	osWindows                 = "windows"
+	maxMetadataResponseBytes  = 10 << 20
+	maxAssetResponseBytes     = 64 << 20
+	maxDecompressedAssetBytes = 128 << 20
 )
 
 func defaultNewGzipReader(r io.Reader) (io.ReadCloser, error) {
@@ -238,7 +239,7 @@ func downloadAndVerifyAsset(ctx context.Context, client *http.Client, url, expec
 	return bodyBytes, nil
 }
 
-func readBoundedBody(r io.Reader, maxBytes int64) ([]byte, error) {
+func defaultReadBoundedBody(r io.Reader, maxBytes int64) ([]byte, error) {
 	lr := io.LimitReader(r, maxBytes+1)
 	data, err := io.ReadAll(lr)
 	if err != nil {
@@ -249,6 +250,8 @@ func readBoundedBody(r io.Reader, maxBytes int64) ([]byte, error) {
 	}
 	return data, nil
 }
+
+var readBoundedBody = defaultReadBoundedBody
 
 func replacePOSIX(body io.Reader, execPath string) error {
 	gzr, err := newGzipReader(body)
@@ -261,7 +264,8 @@ func replacePOSIX(body io.Reader, execPath string) error {
 		}
 	}()
 
-	tr := tar.NewReader(gzr)
+	boundedGzr := io.LimitReader(gzr, maxDecompressedAssetBytes+1)
+	tr := tar.NewReader(boundedGzr)
 	for {
 		hdr, tarErr := tr.Next()
 		if errors.Is(tarErr, io.EOF) {
@@ -269,6 +273,10 @@ func replacePOSIX(body io.Reader, execPath string) error {
 		}
 		if tarErr != nil {
 			return fmt.Errorf("failed to read tar archive: %w", tarErr)
+		}
+
+		if hdr.Size > maxDecompressedAssetBytes {
+			return ErrResponseTooLarge
 		}
 
 		baseName := filepath.Base(hdr.Name)
@@ -283,17 +291,21 @@ func replacePOSIX(body io.Reader, execPath string) error {
 }
 
 func replaceWindows(body io.Reader, execPath string) error {
-	data, err := io.ReadAll(body)
+	data, err := readBoundedBody(body, maxAssetResponseBytes)
 	if err != nil {
 		return fmt.Errorf("failed to read zip body: %w", err)
 	}
 
-	zr, err := zip.NewReader(strings.NewReader(string(data)), int64(len(data)))
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return fmt.Errorf("failed to initialize zip reader: %w", err)
 	}
 
 	for _, file := range zr.File {
+		if file.UncompressedSize64 > maxDecompressedAssetBytes {
+			return ErrResponseTooLarge
+		}
+
 		baseName := filepath.Base(file.Name)
 		if baseName != "wtd.exe" {
 			continue
@@ -331,7 +343,9 @@ func performAtomicSwap(src io.Reader, execPath string) error {
 		}
 	}()
 
-	if _, copyErr := ioCopy(tempFile, src); copyErr != nil {
+	lr := io.LimitReader(src, maxDecompressedAssetBytes+1)
+	written, copyErr := ioCopy(tempFile, lr)
+	if copyErr != nil {
 		if cerr := tempFileClose(tempFile); cerr != nil {
 			return errors.Join(fmt.Errorf("failed to write new binary: %w", copyErr), cerr)
 		}
@@ -339,6 +353,10 @@ func performAtomicSwap(src io.Reader, execPath string) error {
 	}
 	if cerr := tempFileClose(tempFile); cerr != nil {
 		return fmt.Errorf("close temp file: %w", cerr)
+	}
+
+	if written > maxDecompressedAssetBytes {
+		return ErrResponseTooLarge
 	}
 
 	if chmodErr := osChmod(tempName, 0o755); chmodErr != nil {
@@ -370,7 +388,7 @@ func performWindowsReplace(src io.Reader, execPath string) error {
 		return fmt.Errorf("failed to rename current executable: %w", renameErr)
 	}
 
-	data, err := io.ReadAll(src)
+	data, err := readBoundedBody(src, maxDecompressedAssetBytes)
 	if err != nil {
 		if rErr := osRename(oldPath, cleanPath); rErr != nil {
 			return errors.Join(fmt.Errorf("failed to read new binary from archive: %w", err), rErr)

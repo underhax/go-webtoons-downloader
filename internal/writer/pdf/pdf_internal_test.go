@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -477,4 +479,146 @@ func TestWriteChapterJoinedRemoveError(t *testing.T) {
 	if mkdirErr == nil || !strings.Contains(mkdirErr.Error(), "create chapter directory") {
 		t.Errorf("expected create chapter directory error, got: %v", mkdirErr)
 	}
+}
+
+func createOversizedPNGBytes(width, height uint32) []byte {
+	var buf bytes.Buffer
+	buf.WriteString("\x89PNG\r\n\x1a\n")
+	ihdrData := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdrData[0:4], width)
+	binary.BigEndian.PutUint32(ihdrData[4:8], height)
+	ihdrData[8] = 8
+	ihdrData[9] = 2
+	ihdrData[10] = 0
+	ihdrData[11] = 0
+	ihdrData[12] = 0
+
+	chunkType := []byte("IHDR")
+	var lenBytes [4]byte
+	binary.BigEndian.PutUint32(lenBytes[:], 13)
+	buf.Write(lenBytes[:])
+	buf.Write(chunkType)
+	buf.Write(ihdrData)
+
+	crc := crc32.ChecksumIEEE(append(chunkType, ihdrData...))
+	var crcBytes [4]byte
+	binary.BigEndian.PutUint32(crcBytes[:], crc)
+	buf.Write(crcBytes[:])
+	return buf.Bytes()
+}
+
+func createOversizedJPEGHeader(width, height uint16) []byte {
+	var dims [4]byte
+	binary.BigEndian.PutUint16(dims[0:2], height)
+	binary.BigEndian.PutUint16(dims[2:4], width)
+	return []byte{
+		0xFF, 0xD8,
+		0xFF, 0xE0, 0x00, 0x10,
+		'J', 'F', 'I', 'F', 0x00,
+		0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+		0xFF, 0xC0, 0x00, 0x11, 0x08,
+		dims[0], dims[1],
+		dims[2], dims[3],
+		0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01,
+	}
+}
+
+func mockFailingParseJPEGDimensions(_ []byte) (width, height int, err error) {
+	return 0, 0, ErrInvalidImage
+}
+
+func TestExtractOrNormalizeImageJPEG(t *testing.T) {
+	validJPEG := createInternalTestJPEG(t)
+	oversizedJPEG := createOversizedJPEGHeader(20000, 20000)
+
+	t.Run("valid fast path jpeg returns metadata", func(t *testing.T) {
+		meta, err := extractOrNormalizeImage(validJPEG)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if meta.width != 50 || meta.height != 50 {
+			t.Errorf("expected 50x50, got %dx%d", meta.width, meta.height)
+		}
+	})
+
+	t.Run("oversized fast path jpeg returns ErrInvalidImage immediately", func(t *testing.T) {
+		_, err := extractOrNormalizeImage(oversizedJPEG)
+		if !errors.Is(err, ErrInvalidImage) {
+			t.Errorf("expected ErrInvalidImage, got: %v", err)
+		}
+	})
+
+	t.Run("fallback jpeg oversized config rejected", func(t *testing.T) {
+		origParse := parseJPEGDimensions
+		defer func() { parseJPEGDimensions = origParse }()
+		parseJPEGDimensions = mockFailingParseJPEGDimensions
+
+		_, err := extractOrNormalizeImage(oversizedJPEG)
+		if !errors.Is(err, ErrInvalidImage) {
+			t.Errorf("expected ErrInvalidImage, got: %v", err)
+		}
+	})
+
+	t.Run("fallback jpeg config valid but raster decode fails", func(t *testing.T) {
+		origParse := parseJPEGDimensions
+		defer func() { parseJPEGDimensions = origParse }()
+		parseJPEGDimensions = mockFailingParseJPEGDimensions
+
+		smallJPEGHeaderOnly := createOversizedJPEGHeader(10, 10)
+		_, err := extractOrNormalizeImage(smallJPEGHeaderOnly)
+		if !errors.Is(err, ErrInvalidImage) || !strings.Contains(err.Error(), "decode jpeg raster") {
+			t.Errorf("expected decode jpeg raster error, got: %v", err)
+		}
+	})
+
+	t.Run("fallback jpeg successful decode and re-encode", func(t *testing.T) {
+		origParse := parseJPEGDimensions
+		defer func() { parseJPEGDimensions = origParse }()
+		parseJPEGDimensions = mockFailingParseJPEGDimensions
+
+		meta, err := extractOrNormalizeImage(validJPEG)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if meta.width != 50 || meta.height != 50 {
+			t.Errorf("expected 50x50, got %dx%d", meta.width, meta.height)
+		}
+	})
+}
+
+func TestExtractOrNormalizeImagePNGAndCorrupt(t *testing.T) {
+	validPNG := createInternalTestPNG(t)
+	oversizedPNG := createOversizedPNGBytes(20000, 20000)
+
+	t.Run("valid png converts to jpeg", func(t *testing.T) {
+		meta, err := extractOrNormalizeImage(validPNG)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if meta.width != 30 || meta.height != 30 {
+			t.Errorf("expected 30x30, got %dx%d", meta.width, meta.height)
+		}
+	})
+
+	t.Run("oversized png rejected by png config validation", func(t *testing.T) {
+		_, err := extractOrNormalizeImage(oversizedPNG)
+		if !errors.Is(err, ErrInvalidImage) {
+			t.Errorf("expected ErrInvalidImage, got: %v", err)
+		}
+	})
+
+	t.Run("png config valid but raster truncated returns decode error", func(t *testing.T) {
+		smallPNGHeaderOnly := createOversizedPNGBytes(10, 10)
+		_, err := extractOrNormalizeImage(smallPNGHeaderOnly)
+		if !errors.Is(err, ErrInvalidImage) || !strings.Contains(err.Error(), "decode png raster") {
+			t.Errorf("expected decode png raster error, got: %v", err)
+		}
+	})
+
+	t.Run("corrupt data neither jpeg nor png returns decode error", func(t *testing.T) {
+		_, err := extractOrNormalizeImage([]byte("not-an-image-at-all"))
+		if !errors.Is(err, ErrInvalidImage) || !strings.Contains(err.Error(), "decode image config") {
+			t.Errorf("expected decode image config error, got: %v", err)
+		}
+	})
 }

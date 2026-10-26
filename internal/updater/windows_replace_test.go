@@ -48,6 +48,12 @@ func TestReplaceWindows(t *testing.T) {
 			errContains: "failed to initialize zip reader",
 		},
 		{
+			name:        "oversized_zip_entry",
+			body:        bytes.NewBuffer(createDummyZipWithUncompressedSize(t, "wtd.exe", dummyContent, maxDecompressedAssetBytes+1)),
+			wantErr:     true,
+			errContains: "response body exceeds size limit",
+		},
+		{
 			name:        "missing_binary_win",
 			body:        bytes.NewBuffer(emptyArchive),
 			wantErr:     true,

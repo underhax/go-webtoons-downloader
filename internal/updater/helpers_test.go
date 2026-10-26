@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"encoding/binary"
 	"errors"
 	"net/http"
 	"testing"
@@ -68,6 +69,56 @@ func createDummyZip(t *testing.T, filename, content string) []byte {
 	}
 
 	return buf.Bytes()
+}
+
+func createDummyTarGzWithHeaderSize(t *testing.T, filename, content string, headerSize int64) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	hdr := &tar.Header{
+		Name: filename,
+		Mode: 0o755,
+		Size: headerSize,
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatalf("failed to write tar header: %v", err)
+	}
+	if _, err := tw.Write([]byte(content)); err != nil {
+		t.Fatalf("failed to write tar content: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("failed to close gzip writer: %v", err)
+	}
+
+	return buf.Bytes()
+}
+
+func createDummyZipWithUncompressedSize(t *testing.T, filename, content string, uncompressedSize uint32) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	f, err := zw.Create(filename)
+	if err != nil {
+		t.Fatalf("failed to create zip entry: %v", err)
+	}
+	if _, err := f.Write([]byte(content)); err != nil {
+		t.Fatalf("failed to write zip content: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("failed to close zip writer: %v", err)
+	}
+
+	data := buf.Bytes()
+	cdSig := []byte{0x50, 0x4b, 0x01, 0x02}
+	idx := bytes.Index(data, cdSig)
+	if idx == -1 {
+		t.Fatalf("central directory signature not found")
+	}
+	binary.LittleEndian.PutUint32(data[idx+24:idx+28], uncompressedSize)
+	return data
 }
 
 type errReader struct{}

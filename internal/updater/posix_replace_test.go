@@ -54,6 +54,12 @@ func TestReplacePOSIX(t *testing.T) {
 			errContains: "failed to initialize gzip reader",
 		},
 		{
+			name:        "oversized_tar_header",
+			body:        bytes.NewBuffer(createDummyTarGzWithHeaderSize(t, "wtd", dummyContent, maxDecompressedAssetBytes+1)),
+			wantErr:     true,
+			errContains: "response body exceeds size limit",
+		},
+		{
 			name:        "missing_binary_posix",
 			body:        bytes.NewBuffer(emptyArchive),
 			wantErr:     true,

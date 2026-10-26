@@ -249,6 +249,14 @@ func mockFailingGzipReaderClose(_ io.Reader) (io.ReadCloser, error) {
 	return &failReadCloser{}, nil
 }
 
+func mockExceedingIOCopy(_ io.Writer, _ io.Reader) (int64, error) {
+	return maxDecompressedAssetBytes + 1, nil
+}
+
+func mockExceedingReadBoundedBody(_ io.Reader, _ int64) ([]byte, error) {
+	return nil, ErrResponseTooLarge
+}
+
 func mockFailingNewRequest(_ context.Context, _, _ string, _ io.Reader) (*http.Request, error) {
 	return nil, errors.New("simulated new request failure")
 }
@@ -535,6 +543,16 @@ func TestReplaceWindowsErrors(t *testing.T) {
 			t.Errorf("expected failed to close zip entry error, got: %v", err)
 		}
 	})
+
+	t.Run("zip body exceeds size limit", func(t *testing.T) {
+		origReadBounded := readBoundedBody
+		defer func() { readBoundedBody = origReadBounded }()
+		readBoundedBody = mockExceedingReadBoundedBody
+		err := replaceWindows(strings.NewReader("dummy"), "/mock/bin.exe")
+		if !errors.Is(err, ErrResponseTooLarge) {
+			t.Errorf("expected ErrResponseTooLarge, got: %v", err)
+		}
+	})
 }
 
 func TestDefaultNewRequestWithContextError(t *testing.T) {
@@ -592,6 +610,15 @@ func TestPerformAtomicSwapErrors(t *testing.T) {
 			t.Errorf("expected error from performAtomicSwap with failReadCloser, got nil")
 		}
 	})
+
+	t.Run("ioCopy exceeds maxDecompressedAssetBytes", func(t *testing.T) {
+		ioCopy = mockExceedingIOCopy
+		tempFileClose = defaultTempFileClose
+		err := performAtomicSwap(strings.NewReader("data"), execPath)
+		if !errors.Is(err, ErrResponseTooLarge) {
+			t.Errorf("expected ErrResponseTooLarge, got: %v", err)
+		}
+	})
 }
 
 func TestPerformWindowsReplaceErrors(t *testing.T) {
@@ -629,6 +656,21 @@ func TestPerformWindowsReplaceErrors(t *testing.T) {
 		err := performWindowsReplace(&failReadCloser{}, execPath)
 		if err == nil || !strings.Contains(err.Error(), "failed to read new binary from archive") {
 			t.Errorf("expected read binary error, got: %v", err)
+		}
+	})
+
+	t.Run("readBoundedBody error with rollback rename success", func(t *testing.T) {
+		if err := os.WriteFile(execPath, []byte("current"), 0o600); err != nil {
+			t.Fatalf("write current: %v", err)
+		}
+		osRemove = os.Remove
+		osRename = os.Rename
+		origReadBounded := readBoundedBody
+		defer func() { readBoundedBody = origReadBounded }()
+		readBoundedBody = mockExceedingReadBoundedBody
+		err := performWindowsReplace(strings.NewReader("data"), execPath)
+		if !errors.Is(err, ErrResponseTooLarge) {
+			t.Errorf("expected ErrResponseTooLarge, got: %v", err)
 		}
 	})
 
@@ -710,6 +752,7 @@ func TestUpdaterReadBoundedBody(t *testing.T) {
 
 	tests := []struct {
 		errExpected error
+		reader      io.Reader
 		name        string
 		content     string
 		maxBytes    int64
@@ -726,16 +769,25 @@ func TestUpdaterReadBoundedBody(t *testing.T) {
 			maxBytes:    10,
 			errExpected: ErrResponseTooLarge,
 		},
+		{
+			name:        "reader failure returns wrapped error",
+			reader:      &failReadCloser{},
+			maxBytes:    100,
+			errExpected: errors.New("read body stream"),
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			r := strings.NewReader(tc.content)
+			var r io.Reader = strings.NewReader(tc.content)
+			if tc.reader != nil {
+				r = tc.reader
+			}
 			data, err := readBoundedBody(r, tc.maxBytes)
 			if tc.errExpected != nil {
-				if !errors.Is(err, tc.errExpected) {
-					t.Fatalf("expected error %v, got %v", tc.errExpected, err)
+				if err == nil || !strings.Contains(err.Error(), tc.errExpected.Error()) {
+					t.Fatalf("expected error containing %v, got %v", tc.errExpected, err)
 				}
 				return
 			}

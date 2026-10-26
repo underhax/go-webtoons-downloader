@@ -105,3 +105,158 @@ func TestIsSOFMarkerTable(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateImageDimensions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errExpected error
+		name        string
+		width       int
+		height      int
+	}{
+		{
+			name:        "zero width",
+			width:       0,
+			height:      100,
+			errExpected: ErrInvalidImage,
+		},
+		{
+			name:        "zero height",
+			width:       100,
+			height:      0,
+			errExpected: ErrInvalidImage,
+		},
+		{
+			name:        "negative width",
+			width:       -1,
+			height:      100,
+			errExpected: ErrInvalidImage,
+		},
+		{
+			name:        "negative height",
+			width:       100,
+			height:      -1,
+			errExpected: ErrInvalidImage,
+		},
+		{
+			name:        "width exceeds maxImageDimension",
+			width:       maxImageDimension + 1,
+			height:      100,
+			errExpected: ErrInvalidImage,
+		},
+		{
+			name:        "height exceeds maxImageDimension",
+			width:       100,
+			height:      maxImageDimension + 1,
+			errExpected: ErrInvalidImage,
+		},
+		{
+			name:        "pixel count exceeds maxImagePixels",
+			width:       10000,
+			height:      10000,
+			errExpected: ErrInvalidImage,
+		},
+		{
+			name:        "valid dimensions",
+			width:       800,
+			height:      1200,
+			errExpected: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateImageDimensions(tc.width, tc.height)
+			if tc.errExpected != nil {
+				if !errors.Is(err, tc.errExpected) {
+					t.Fatalf("expected error %v, got %v", tc.errExpected, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestReadSOFDimensionsDefensive(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errExpected   error
+		name          string
+		data          []byte
+		offset        int
+		segmentLength int
+		expW          int
+		expH          int
+	}{
+		{
+			name:          "segment length less than 7",
+			data:          []byte{0x00, 0x05, 0x08, 0x01, 0x00, 0x01, 0x00},
+			offset:        0,
+			segmentLength: 5,
+			errExpected:   ErrInvalidImage,
+		},
+		{
+			name:          "offset plus 7 exceeds buffer",
+			data:          []byte{0x00, 0x08, 0x08, 0x01},
+			offset:        0,
+			segmentLength: 8,
+			errExpected:   ErrInvalidImage,
+		},
+		{
+			name: "oversized dimensions return error",
+			data: []byte{
+				0x00, 0x09, 0x08,
+				0xFF, 0xFF,
+				0xFF, 0xFF,
+			},
+			offset:        0,
+			segmentLength: 9,
+			errExpected:   ErrInvalidImage,
+			expH:          65535,
+			expW:          65535,
+		},
+		{
+			name: "valid dimensions return nil",
+			data: []byte{
+				0x00, 0x09, 0x08,
+				0x01, 0x00,
+				0x02, 0x00,
+			},
+			offset:        0,
+			segmentLength: 9,
+			errExpected:   nil,
+			expH:          256,
+			expW:          512,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w, h, err := readSOFDimensions(tc.data, tc.offset, tc.segmentLength)
+			if tc.errExpected != nil {
+				if !errors.Is(err, tc.errExpected) {
+					t.Fatalf("expected error %v, got %v", tc.errExpected, err)
+				}
+				if tc.expW != 0 && (w != tc.expW || h != tc.expH) {
+					t.Errorf("expected %dx%d, got %dx%d", tc.expW, tc.expH, w, h)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if w != tc.expW || h != tc.expH {
+				t.Errorf("expected %dx%d, got %dx%d", tc.expW, tc.expH, w, h)
+			}
+		})
+	}
+}
