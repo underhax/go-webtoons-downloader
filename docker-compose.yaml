@@ -1,0 +1,47 @@
+name: wtd
+
+services:
+  wtd:
+    image: ghcr.io/underhax/go-webtoons-downloader:${WTD_VERSION:-latest}
+    container_name: wtd
+    hostname: wtd
+    profiles:
+      - tools
+    restart: "no"
+    user: "${APP_UID}:${APP_GID}"
+    read_only: true
+    ipc: "none"
+    cap_drop:
+      - ALL
+    cap_add: []
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256m
+          pids: 30
+    mem_reservation: 64m
+    env_file:
+      - .env
+    tmpfs:
+      - /tmp:mode=1777,noexec,nosuid,nodev,size=64m
+    volumes:
+      - ./data/webtoons:/data/webtoons:rw,noexec,nosuid,nodev
+      # - ./links.txt:/links.txt:ro,noexec,nosuid,nodev
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - wtd
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  wtd:
+    name: wtd
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
