@@ -69,8 +69,32 @@ func TestParseSeriesURLTable(t *testing.T) {
 		},
 		{
 			expectErr: webtoon.ErrInvalidURL,
+			name:      "insecure http scheme rejected",
+			rawURL:    "http://www.webtoons.com/en/fantasy/tower/list?title_no=95",
+		},
+		{
+			expectErr: webtoon.ErrInvalidURL,
+			name:      "userinfo rejected",
+			rawURL:    "https://fakeuser@www.webtoons.com/en/fantasy/tower/list?title_no=95",
+		},
+		{
+			expectErr: webtoon.ErrInvalidURL,
+			name:      "non-443 port rejected",
+			rawURL:    "https://www.webtoons.com:8080/en/fantasy/tower/list?title_no=95",
+		},
+		{
+			expectErr:  nil,
+			name:       "explicit 443 port accepted",
+			rawURL:     "https://www.webtoons.com:443/en/fantasy/tower/list?title_no=95",
+			expectLang: "en",
+			expectSlug: "tower",
+			expectNo:   95,
+			isCanvas:   false,
+		},
+		{
+			expectErr: webtoon.ErrInvalidURL,
 			name:      "foreign domain rejected",
-			rawURL:    "https://google.com/en/fantasy/tower/list?title_no=95",
+			rawURL:    "https://example.com/en/fantasy/tower/list?title_no=95",
 		},
 		{
 			expectErr: webtoon.ErrInvalidURL,

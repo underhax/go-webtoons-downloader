@@ -163,6 +163,7 @@ sudo crontab -e
 
 <details>
 <summary><strong>Usage</strong></summary>
+
 ## Usage
 
 `wtd` operates in two primary modes: single series download or batch synchronization from a links file.

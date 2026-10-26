@@ -44,7 +44,7 @@ func mockDownloaderTransport(req *http.Request) (*http.Response, error) {
 	path := req.URL.Path
 
 	switch path {
-	case "/viewer/test":
+	case "/viewer/test", "/viewer/test-err", "/viewer/test-hook", "/viewer/test-delay", "/viewer/test-sem":
 		body := `<div class="viewer_img _img_viewer_area"><img data-url="https://www.example.com/p1.jpg"><img data-url="https://www.example.com/p2.jpg"></div>`
 		return createHTTPResponse(http.StatusOK, "text/html", body), nil
 
@@ -152,7 +152,7 @@ func TestDownloaderErrors(t *testing.T) {
 
 	chapter := webtoon.Chapter{
 		Number:    1,
-		ViewerURL: "https://example.org/viewer/test",
+		ViewerURL: "https://www.example.com/viewer/test-err",
 	}
 
 	ctx := context.Background()
@@ -200,7 +200,7 @@ func TestDownloaderScenarios(t *testing.T) {
 		dl := downloader.New(client, &recordingWriter{}, 2, 0)
 		chapter := webtoon.Chapter{
 			Number:    1,
-			ViewerURL: "https://example.net/viewer/test",
+			ViewerURL: "https://www.example.com/viewer/test-hook",
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		hookCleanedUp := false
@@ -239,7 +239,7 @@ func TestDownloaderScenarios(t *testing.T) {
 		dl := downloader.New(client, &recordingWriter{}, 1, 500*time.Millisecond)
 		chapter := webtoon.Chapter{
 			Number:    1,
-			ViewerURL: "https://sub.example.org/viewer/test",
+			ViewerURL: "https://www.example.com/viewer/test-delay",
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 		defer cancel()
@@ -272,7 +272,7 @@ func TestDownloaderScenarios(t *testing.T) {
 		dl := downloader.New(blockingClient, &recordingWriter{}, 1, 0)
 		chapter := webtoon.Chapter{
 			Number:    1,
-			ViewerURL: "https://sub.example.net/viewer/test",
+			ViewerURL: "https://www.example.com/viewer/test-sem",
 		}
 
 		go func() {

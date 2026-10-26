@@ -244,7 +244,9 @@ func TestParserInternalHelpers(t *testing.T) {
 			{name: "mobile subdomain", host: "m.webtoons.com", expected: true},
 			{name: "uppercase host", host: "WWW.WEBTOONS.COM", expected: true},
 			{name: "host with port", host: "www.webtoons.com:443", expected: true},
-			{name: "disallowed domain", host: "google.com", expected: false},
+			{name: "host with trailing dot", host: "www.webtoons.com.", expected: true},
+			{name: "host with port and trailing dot", host: "www.webtoons.com.:443", expected: true},
+			{name: "disallowed domain", host: "disallowed.example", expected: false},
 			{name: "subdomain of disallowed", host: "webtoons.example.com", expected: false},
 			{name: "empty host", host: "", expected: false},
 		}
@@ -536,7 +538,7 @@ func TestClientAdditionalEdgeCases(t *testing.T) {
 			WithHTTPClient(&http.Client{Transport: mockRoundTripFunc(mockFailingChapterViewerTransport)}),
 			withSleepFunc(mockInstantSleepContext),
 		)
-		_, err := client.FetchChapterImageURLs(context.Background(), "https://www.example.com/viewer")
+		_, err := client.FetchChapterImageURLs(context.Background(), "https://www.webtoons.com/viewer")
 		if err == nil || !strings.Contains(err.Error(), "fetch chapter viewer") {
 			t.Errorf("expected fetch chapter viewer error, got %v", err)
 		}
@@ -672,6 +674,618 @@ func TestReadBoundedBody(t *testing.T) {
 			}
 			if string(data) != tc.content {
 				t.Errorf("expected %q, got %q", tc.content, string(data))
+			}
+		})
+	}
+}
+
+func TestURLValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		rawURL     string
+		baseURL    string
+		expectErr  bool
+		testViewer bool
+		testImage  bool
+	}{
+		{
+			name:       "valid webtoons viewer url",
+			rawURL:     "https://www.webtoons.com/en/fantasy/tower/viewer?episode_no=1",
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "valid mobile webtoons viewer url",
+			rawURL:     "https://m.webtoons.com/viewer",
+			testViewer: true,
+		},
+		{
+			name:       "valid custom base url matching viewer",
+			rawURL:     "https://sub.example.com/viewer",
+			baseURL:    "https://sub.example.com",
+			testViewer: true,
+		},
+		{
+			name:       "valid custom port matching base url",
+			rawURL:     "https://sub.example.com:8443/viewer",
+			baseURL:    "https://sub.example.com:8443",
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "viewer rejected for foreign domain not matching base",
+			rawURL:     "https://cdn.example.org/viewer",
+			expectErr:  true,
+			testViewer: true,
+		},
+		{
+			name:      "image allowed on https cdn domain",
+			rawURL:    "https://cdn.example.org/page.jpg",
+			testImage: true,
+		},
+		{
+			name:       "image rejected for http scheme",
+			rawURL:     "http://cdn.example.org/page.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for userinfo",
+			rawURL:     "https://fakeuser@cdn.example.org/page.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for non-443 non-base port",
+			rawURL:     "https://cdn.example.org:8080/page.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for ipv4 literal",
+			rawURL:     "https://127.0.0.1/page.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for cloud metadata ipv4 literal",
+			rawURL:     "https://169.254.169.254/page.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for localhost",
+			rawURL:     "https://localhost/page.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for internal domain",
+			rawURL:     "https://service.internal/page.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for malformed url",
+			rawURL:     "://invalid-url",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for empty port colon with default base port",
+			rawURL:     "https://cdn.example.org:/page_empty_port.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for empty port colon with custom base port",
+			rawURL:     "https://sub.example.com:/page_custom_empty.jpg",
+			baseURL:    "https://sub.example.com:8443",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for localhost with trailing dot",
+			rawURL:     "https://localhost./page_dot.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for internal domain with trailing dot",
+			rawURL:     "https://service.internal./page_dot_internal.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for non-canonical shorthand ipv4",
+			rawURL:     "https://127.1/page_shorthand.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for decimal integer ipv4",
+			rawURL:     "https://2130706433/page_int.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:       "rejected for ipv6 zone id in brackets",
+			rawURL:     "https://[::1%25lo0]/page_zone.jpg",
+			expectErr:  true,
+			testViewer: true,
+			testImage:  true,
+		},
+		{
+			name:      "accepted for valid domain with trailing dot",
+			rawURL:    "https://cdn.example.org./page_valid_dot.jpg",
+			testImage: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			baseURL := tc.baseURL
+			if baseURL == "" {
+				baseURL = defaultWebtoonURL
+			}
+
+			if tc.testViewer {
+				err := validateViewerURL(tc.rawURL, baseURL)
+				if tc.expectErr && err == nil {
+					t.Errorf("validateViewerURL expected error for %s, got nil", tc.rawURL)
+				}
+				if !tc.expectErr && err != nil {
+					t.Errorf("validateViewerURL unexpected error for %s: %v", tc.rawURL, err)
+				}
+			}
+
+			if tc.testImage {
+				err := validateImageURL(tc.rawURL, baseURL)
+				if tc.expectErr && err == nil {
+					t.Errorf("validateImageURL expected error for %s, got nil", tc.rawURL)
+				}
+				if !tc.expectErr && err != nil {
+					t.Errorf("validateImageURL unexpected error for %s: %v", tc.rawURL, err)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckRedirect(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		targetURL string
+		viaPort   string
+		viaCount  int
+		expectErr bool
+	}{
+		{
+			name:      "valid https redirect",
+			targetURL: "https://cdn.example.org/image.jpg",
+			viaCount:  1,
+			expectErr: false,
+		},
+		{
+			name:      "redirect stopped after max",
+			targetURL: "https://cdn.example.org/image.jpg",
+			viaCount:  10,
+			expectErr: true,
+		},
+		{
+			name:      "redirect to http rejected",
+			targetURL: "http://cdn.example.org/image.jpg",
+			viaCount:  1,
+			expectErr: true,
+		},
+		{
+			name:      "redirect to userinfo rejected",
+			targetURL: "https://fakeuser@cdn.example.org/image.jpg",
+			viaCount:  1,
+			expectErr: true,
+		},
+		{
+			name:      "redirect to non-443 port rejected",
+			targetURL: "https://cdn.example.org:8080/image.jpg",
+			viaCount:  1,
+			expectErr: true,
+		},
+		{
+			name:      "redirect to matching via port allowed",
+			targetURL: "https://cdn.example.org:8443/image.jpg",
+			viaPort:   ":8443",
+			viaCount:  1,
+			expectErr: false,
+		},
+		{
+			name:      "redirect to localhost rejected",
+			targetURL: "https://localhost/image.jpg",
+			viaCount:  1,
+			expectErr: true,
+		},
+		{
+			name:      "redirect to ip literal rejected",
+			targetURL: "https://127.0.0.1/image.jpg",
+			viaCount:  1,
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, tc.targetURL, http.NoBody)
+			if err != nil {
+				t.Fatalf("failed to create req: %v", err)
+			}
+
+			via := make([]*http.Request, tc.viaCount)
+			viaURL := "https://www.webtoons.com" + tc.viaPort + "/start"
+			for i := range tc.viaCount {
+				viaReq, viaErr := http.NewRequestWithContext(context.Background(), http.MethodGet, viaURL, http.NoBody)
+				if viaErr != nil {
+					t.Fatalf("failed to create via req: %v", viaErr)
+				}
+				via[i] = viaReq
+			}
+
+			err = defaultCheckRedirect(req, via)
+			if tc.expectErr && err == nil {
+				t.Errorf("defaultCheckRedirect expected error for %s, got nil", tc.targetURL)
+			}
+			if !tc.expectErr && err != nil {
+				t.Errorf("defaultCheckRedirect unexpected error for %s: %v", tc.targetURL, err)
+			}
+		})
+	}
+}
+
+func TestClientSecurityEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("FetchChapters invalid viewer link rejected", func(t *testing.T) {
+		t.Parallel()
+		httpClient := &http.Client{
+			Transport: mockRoundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				body := `{"result":{"episodeList":[{"episodeNo":1,"episodeTitle":"Ep1","viewerLink":"http://insecure.example.com/viewer"}]}}`
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(body)),
+				}, nil
+			}),
+		}
+		client := NewClient(time.Second, WithHTTPClient(httpClient))
+		series := &SeriesInfo{SeriesType: "webtoon", TitleNo: 1, Language: "en"}
+		_, err := client.FetchChapters(context.Background(), series)
+		if err == nil || !strings.Contains(err.Error(), "invalid chapter viewer link") {
+			t.Errorf("expected invalid chapter viewer link error, got %v", err)
+		}
+	})
+
+	t.Run("FetchChapterImageURLs invalid viewer url rejected", func(t *testing.T) {
+		t.Parallel()
+		client := NewClient(time.Second)
+		_, err := client.FetchChapterImageURLs(context.Background(), "http://insecure.example.com/viewer")
+		if err == nil || !strings.Contains(err.Error(), "invalid chapter viewer url") {
+			t.Errorf("expected invalid chapter viewer url error, got %v", err)
+		}
+	})
+
+	t.Run("DownloadImage disallowed url rejected", func(t *testing.T) {
+		t.Parallel()
+		client := NewClient(time.Second)
+		_, err := client.DownloadImage(context.Background(), "https://127.0.0.1/image.jpg")
+		if err == nil || !strings.Contains(err.Error(), "invalid image url") {
+			t.Errorf("expected invalid image url error, got %v", err)
+		}
+	})
+
+	t.Run("DownloadImage relative url prepends base url", func(t *testing.T) {
+		t.Parallel()
+		httpClient := &http.Client{
+			Transport: mockRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.String() != "https://www.webtoons.com/img/page1.jpg" {
+					return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(strings.NewReader("bad url"))}, nil
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("data"))}, nil
+			}),
+		}
+		client := NewClient(time.Second, WithHTTPClient(httpClient))
+		data, err := client.DownloadImage(context.Background(), "/img/page1.jpg")
+		if err != nil {
+			t.Fatalf("unexpected error downloading relative image: %v", err)
+		}
+		if string(data) != "data" {
+			t.Errorf("expected data, got %s", string(data))
+		}
+	})
+
+	t.Run("DownloadImage protocol relative url prepends https", func(t *testing.T) {
+		t.Parallel()
+		httpClient := &http.Client{
+			Transport: mockRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.String() != "https://cdn.example.org/img/page1.jpg" {
+					return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(strings.NewReader("bad url"))}, nil
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("data"))}, nil
+			}),
+		}
+		client := NewClient(time.Second, WithHTTPClient(httpClient))
+		data, err := client.DownloadImage(context.Background(), "//cdn.example.org/img/page1.jpg")
+		if err != nil {
+			t.Fatalf("unexpected error downloading protocol-relative image: %v", err)
+		}
+		if string(data) != "data" {
+			t.Errorf("expected data, got %s", string(data))
+		}
+	})
+}
+
+func TestExtractBasePort(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		baseURL  string
+		expected string
+	}{
+		{
+			name:     "invalid url returns empty",
+			baseURL:  "://invalid",
+			expected: "",
+		},
+		{
+			name:     "empty base url returns empty",
+			baseURL:  "",
+			expected: "",
+		},
+		{
+			name:     "url without port returns empty",
+			baseURL:  "https://base.example",
+			expected: "",
+		},
+		{
+			name:     "url with port returns port",
+			baseURL:  "https://port.example:8443",
+			expected: "8443",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := extractBasePort(tc.baseURL)
+			if got != tc.expected {
+				t.Errorf("extractBasePort(%q) = %q, expected %q", tc.baseURL, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestIsDisallowedHost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		host     string
+		expected bool
+	}{
+		{
+			name:     "empty host disallowed",
+			host:     "",
+			expected: true,
+		},
+		{
+			name:     "subdomain localhost disallowed",
+			host:     "sub.localhost",
+			expected: true,
+		},
+		{
+			name:     "local suffix disallowed",
+			host:     "my.local",
+			expected: true,
+		},
+		{
+			name:     "internal suffix disallowed",
+			host:     "service.internal",
+			expected: true,
+		},
+		{
+			name:     "corp suffix disallowed",
+			host:     "intra.corp",
+			expected: true,
+		},
+		{
+			name:     "home suffix disallowed",
+			host:     "router.home",
+			expected: true,
+		},
+		{
+			name:     "lan suffix disallowed",
+			host:     "modem.lan",
+			expected: true,
+		},
+		{
+			name:     "host with port disallowed ip",
+			host:     "127.0.0.1:8080",
+			expected: true,
+		},
+		{
+			name:     "ipv6 in brackets disallowed",
+			host:     "[::1]",
+			expected: true,
+		},
+		{
+			name:     "regular domain allowed",
+			host:     "domain.example",
+			expected: false,
+		},
+		{
+			name:     "regular domain with port allowed",
+			host:     "host.example:443",
+			expected: false,
+		},
+		{
+			name:     "localhost with trailing dot disallowed",
+			host:     "localhost.",
+			expected: true,
+		},
+		{
+			name:     "internal suffix with trailing dot disallowed",
+			host:     "metadata.internal.",
+			expected: true,
+		},
+		{
+			name:     "local suffix with trailing dot disallowed",
+			host:     "server.local.",
+			expected: true,
+		},
+		{
+			name:     "dots only disallowed",
+			host:     "....",
+			expected: true,
+		},
+		{
+			name:     "ipv6 with zone id in brackets disallowed",
+			host:     "[::1%25lo0]",
+			expected: true,
+		},
+		{
+			name:     "ipv6 with zone id and port disallowed",
+			host:     "[::1%25eth0]:443",
+			expected: true,
+		},
+		{
+			name:     "ipv6 with zone id unbracketed disallowed",
+			host:     "::1%25lo0",
+			expected: true,
+		},
+		{
+			name:     "ipv6 with colon disallowed",
+			host:     "fe80::1",
+			expected: true,
+		},
+		{
+			name:     "shorthand ipv4 disallowed",
+			host:     "127.1",
+			expected: true,
+		},
+		{
+			name:     "integer ipv4 disallowed",
+			host:     "2130706433",
+			expected: true,
+		},
+		{
+			name:     "octal ipv4 disallowed",
+			host:     "0177.0.0.1",
+			expected: true,
+		},
+		{
+			name:     "hex ipv4 disallowed",
+			host:     "0x7f000001",
+			expected: true,
+		},
+		{
+			name:     "hex prefix with invalid chars not numeric",
+			host:     "0xnothex",
+			expected: false,
+		},
+		{
+			name:     "domain with trailing dot allowed",
+			host:     "zone.example.",
+			expected: false,
+		},
+		{
+			name:     "domain with 0x prefix allowed",
+			host:     "0xzone.example",
+			expected: false,
+		},
+		{
+			name:     "subdomain with numbers allowed",
+			host:     "cdn123.example.com",
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := isDisallowedHost(tc.host)
+			if got != tc.expected {
+				t.Errorf("isDisallowedHost(%q) = %v, expected %v", tc.host, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestMatchesBaseHost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		rawHost  string
+		baseURL  string
+		expected bool
+	}{
+		{
+			name:     "invalid base url returns false",
+			rawHost:  "invalid.example",
+			baseURL:  "://invalid",
+			expected: false,
+		},
+		{
+			name:     "empty base url returns false",
+			rawHost:  "empty.example",
+			baseURL:  "",
+			expected: false,
+		},
+		{
+			name:     "raw host with port matches base without port",
+			rawHost:  "match.example:8443",
+			baseURL:  "https://match.example",
+			expected: true,
+		},
+		{
+			name:     "raw host without port matches base with port",
+			rawHost:  "target.example",
+			baseURL:  "https://target.example:8443",
+			expected: true,
+		},
+		{
+			name:     "different host returns false",
+			rawHost:  "mismatch.example",
+			baseURL:  "https://origin.example",
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := matchesBaseHost(tc.rawHost, tc.baseURL)
+			if got != tc.expected {
+				t.Errorf("matchesBaseHost(%q, %q) = %v, expected %v", tc.rawHost, tc.baseURL, got, tc.expected)
 			}
 		})
 	}

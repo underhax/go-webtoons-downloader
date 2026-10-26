@@ -11,15 +11,11 @@ import (
 	"strings"
 )
 
+// Sentinels returned when URL parsing or document extraction fails.
 var (
-	// ErrInvalidURL indicates the Webtoon URL cannot be parsed.
-	ErrInvalidURL = errors.New("invalid webtoon url")
-
-	// ErrTitleNoNotFound indicates the title number is missing from both url and html.
+	ErrInvalidURL      = errors.New("invalid webtoon url")
 	ErrTitleNoNotFound = errors.New("series title_no not found")
-
-	// ErrNoImagesFound indicates no viewer image urls were extracted.
-	ErrNoImagesFound = errors.New("no image urls found in chapter html")
+	ErrNoImagesFound   = errors.New("no image urls found in chapter html")
 
 	reCanonicalTitleNo     = regexp.MustCompile(`(?i)<link[^>]*rel=["']canonical["'][^>]*href=["'][^"']*title_no=([0-9]+)`)
 	reOGTitlePropertyFirst = regexp.MustCompile(`(?i)<meta[^>]*property=["']og:title["'][^>]*content=(?:"([^"]*)"|'([^']*)')`)
@@ -40,9 +36,12 @@ var (
 )
 
 func isAllowedWebtoonHost(rawHost string) bool {
-	host := strings.ToLower(rawHost)
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
+	host := strings.TrimRight(strings.ToLower(rawHost), ".")
+	if h, port, err := net.SplitHostPort(host); err == nil {
+		if port != "443" {
+			return false
+		}
+		host = strings.TrimRight(h, ".")
 	}
 	return host == "webtoons.com" || host == "www.webtoons.com" || host == "m.webtoons.com"
 }
@@ -113,8 +112,12 @@ func ParseSeriesURL(rawURL string) (*SeriesInfo, error) {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidURL, rawURL)
 	}
 
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+	if parsed.Scheme != "https" {
 		return nil, fmt.Errorf("%w: unsupported scheme %s", ErrInvalidURL, parsed.Scheme)
+	}
+
+	if parsed.User != nil {
+		return nil, fmt.Errorf("%w: userinfo not allowed", ErrInvalidURL)
 	}
 
 	if !isAllowedWebtoonHost(parsed.Host) {

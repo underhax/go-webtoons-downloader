@@ -7,9 +7,6 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
-    labels:
-      - "dependencies"
-      - "github-actions"
 
   - package-ecosystem: "gomod"
     directory: "/"
@@ -17,9 +14,6 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "go"
-    labels:
-      - "dependencies"
-      - "go"
 
   - package-ecosystem: "docker"
     directory: "/"
@@ -27,6 +21,3 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "docker"
-    labels:
-      - "dependencies"
-      - "docker"
