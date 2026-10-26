@@ -114,7 +114,7 @@ func TestDetectLastChapterAndFolderName(t *testing.T) {
 		t.Fatalf("failed to create target dir: %v", err)
 	}
 
-	filesToCreate := []string{"001.pdf", "002.pdf", "042.pdf", "readme.txt"}
+	filesToCreate := []string{"001.pdf", "002.pdf", "042.pdf", "backup_20261026.pdf", "readme.txt"}
 	for _, f := range filesToCreate {
 		filePath := filepath.Join(targetDir, f)
 		if err := os.WriteFile(filePath, []byte("data"), 0o600); err != nil {

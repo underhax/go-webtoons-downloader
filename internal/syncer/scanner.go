@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	reDigits  = regexp.MustCompile(`(\d+)`)
+	reDigits  = regexp.MustCompile(`^(\d+)(?:\.[a-zA-Z0-9]+)?$`)
 	osReadDir = os.ReadDir
 )
 
