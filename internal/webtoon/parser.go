@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Sentinels returned when URL parsing or document extraction fails.
@@ -164,6 +165,21 @@ func ExtractTitleNo(pageHTML string) (int, error) {
 	return titleNo, nil
 }
 
+func mapMetadataRune(r rune) rune {
+	if unicode.IsSpace(r) {
+		return ' '
+	}
+	if unicode.IsControl(r) {
+		return -1
+	}
+	return r
+}
+
+func cleanMetadataText(s string) string {
+	cleaned := strings.Map(mapMetadataRune, html.UnescapeString(s))
+	return strings.Join(strings.Fields(cleaned), " ")
+}
+
 // ExtractSeriesTitle extracts the human-readable comic name from page markup.
 func ExtractSeriesTitle(pageHTML, fallbackSlug string) string {
 	if title := extractMetaOGTitle(pageHTML); title != "" {
@@ -171,14 +187,14 @@ func ExtractSeriesTitle(pageHTML, fallbackSlug string) string {
 	}
 
 	if matches := reSubjH1.FindStringSubmatch(pageHTML); len(matches) >= 2 {
-		if cleaned := strings.TrimSpace(matches[1]); cleaned != "" {
-			return html.UnescapeString(cleaned)
+		if cleaned := cleanMetadataText(matches[1]); cleaned != "" {
+			return cleaned
 		}
 	}
 
 	if matches := reSubjH3.FindStringSubmatch(pageHTML); len(matches) >= 2 {
-		if cleaned := strings.TrimSpace(matches[1]); cleaned != "" {
-			return html.UnescapeString(cleaned)
+		if cleaned := cleanMetadataText(matches[1]); cleaned != "" {
+			return cleaned
 		}
 	}
 
@@ -191,8 +207,8 @@ func extractMetaOGTitle(pageHTML string) string {
 		if val == "" && len(matches) >= 3 {
 			val = matches[2]
 		}
-		if cleaned := strings.TrimSpace(val); cleaned != "" {
-			return html.UnescapeString(cleaned)
+		if cleaned := cleanMetadataText(val); cleaned != "" {
+			return cleaned
 		}
 	}
 
@@ -201,8 +217,8 @@ func extractMetaOGTitle(pageHTML string) string {
 		if val == "" && len(matches) >= 3 {
 			val = matches[2]
 		}
-		if cleaned := strings.TrimSpace(val); cleaned != "" {
-			return html.UnescapeString(cleaned)
+		if cleaned := cleanMetadataText(val); cleaned != "" {
+			return cleaned
 		}
 	}
 
@@ -213,7 +229,7 @@ func extractMetaOGTitle(pageHTML string) string {
 func ExtractGenre(pageHTML string) string {
 	matches := reGenre.FindStringSubmatch(pageHTML)
 	if len(matches) >= 2 {
-		return html.UnescapeString(strings.TrimSpace(matches[1]))
+		return cleanMetadataText(matches[1])
 	}
 	return ""
 }
@@ -225,8 +241,8 @@ func ExtractAuthor(pageHTML string) string {
 		if val == "" && len(matches) >= 3 {
 			val = matches[2]
 		}
-		if cleaned := strings.TrimSpace(val); cleaned != "" {
-			return html.UnescapeString(cleaned)
+		if cleaned := cleanMetadataText(val); cleaned != "" {
+			return cleaned
 		}
 	}
 
@@ -237,20 +253,18 @@ func ExtractAuthor(pageHTML string) string {
 
 	stripped := reButtonTag.ReplaceAllString(matches[1], " ")
 	stripped = reHTMLTags.ReplaceAllString(stripped, " ")
-	fields := strings.Fields(stripped)
-	joined := strings.Join(fields, " ")
+	joined := cleanMetadataText(stripped)
 	normalized := strings.ReplaceAll(joined, " , ", ", ")
 	normalized = strings.ReplaceAll(normalized, " ,", ",")
-	return html.UnescapeString(strings.Trim(normalized, " ,"))
+	return strings.Trim(normalized, " ,")
 }
 
 // ExtractSummary retrieves the series synopsis from description tags or paragraphs.
 func ExtractSummary(pageHTML string) string {
 	if matches := reSummaryP.FindStringSubmatch(pageHTML); len(matches) >= 2 {
 		stripped := reHTMLTags.ReplaceAllString(matches[1], " ")
-		cleaned := strings.Join(strings.Fields(stripped), " ")
-		if cleaned != "" {
-			return html.UnescapeString(cleaned)
+		if cleaned := cleanMetadataText(stripped); cleaned != "" {
+			return cleaned
 		}
 	}
 
@@ -259,8 +273,8 @@ func ExtractSummary(pageHTML string) string {
 		if val == "" && len(matches) >= 3 {
 			val = matches[2]
 		}
-		if cleaned := strings.TrimSpace(val); cleaned != "" {
-			return html.UnescapeString(cleaned)
+		if cleaned := cleanMetadataText(val); cleaned != "" {
+			return cleaned
 		}
 	}
 

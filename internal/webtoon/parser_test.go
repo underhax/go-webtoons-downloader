@@ -47,6 +47,12 @@ func TestExtractSeriesTitleTable(t *testing.T) {
 			expected:     "The Extra’s Academy",
 		},
 		{
+			name:         "strips ansi and control entities and normalizes whitespace",
+			html:         "<html><head><meta property=\"og:title\" content=\"Tower\n\tof&#x1b;[31m\x07\u009b God\"></head></html>",
+			fallbackSlug: "slug-six",
+			expected:     "Tower of[31m God",
+		},
+		{
 			name:         "fallback to slug when no markup matches",
 			html:         `<html><body><div class="unrelated">Unknown</div></body></html>`,
 			fallbackSlug: "fallback-slug",
@@ -217,6 +223,15 @@ func TestExtractMetadataTable(t *testing.T) {
 			expectedGenre:   "",
 			expectedAuthor:  "Creator Name",
 			expectedSummary: "Alternative summary text.",
+		},
+		{
+			name: "strips control characters from genre author and summary",
+			html: "<h2 class=\"genre\">Fantasy&#x1b;[0m\n</h2>" +
+				"<meta name=\"author\" content=\"Author&#x07;\r\nOne\">" +
+				"<meta name=\"description\" content=\"Summary\x1b]52;c;test\x07\ttext.\">",
+			expectedGenre:   "Fantasy[0m",
+			expectedAuthor:  "Author One",
+			expectedSummary: "Summary]52;c;test text.",
 		},
 		{
 			name:            "empty html returns empty strings",

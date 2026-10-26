@@ -190,7 +190,7 @@ func mockTransport(req *http.Request) (*http.Response, error) {
 		return createHTTPResponse(http.StatusOK, "text/html", body), nil
 
 	case "/api/v1/webtoon/95/episodes":
-		body := `{"result":{"episodeList":[{"episodeNo":1,"episodeTitle":"Episode 1","viewerLink":"/en/fantasy/tower/viewer?episode_no=1"},{"episodeNo":2,"episodeTitle":"Episode 2","viewerLink":"/en/fantasy/tower/viewer?episode_no=2"}]}}`
+		body := `{"result":{"episodeList":[{"episodeNo":1,"episodeTitle":"Episode\u001b\n1","viewerLink":"/en/fantasy/tower/viewer?episode_no=1"},{"episodeNo":2,"episodeTitle":"Episode 2","viewerLink":"/en/fantasy/tower/viewer?episode_no=2"}]}}`
 		return createHTTPResponse(http.StatusOK, "application/json", body), nil
 
 	case "/en/fantasy/tower/viewer":

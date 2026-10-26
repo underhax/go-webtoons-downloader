@@ -170,7 +170,7 @@ func (c *Client) FetchChapters(ctx context.Context, series *SeriesInfo) ([]Chapt
 		chapters = append(chapters, Chapter{
 			Number:    i + 1,
 			EpisodeNo: item.EpisodeNo,
-			Title:     strings.TrimSpace(item.EpisodeTitle),
+			Title:     cleanMetadataText(item.EpisodeTitle),
 			ViewerURL: viewerURL,
 		})
 	}
