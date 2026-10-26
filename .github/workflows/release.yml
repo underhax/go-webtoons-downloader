@@ -23,7 +23,14 @@ jobs:
           go-version-file: "go.mod"
 
       - name: Build and Archive
+        env:
+          APP_VERSION: ${{ github.ref_name }}
         run: |
+          if [[ ! "$APP_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "Invalid release tag format: $APP_VERSION" >&2
+            exit 1
+          fi
+
           mkdir -p release_assets
 
           TARGETS="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64"
@@ -54,12 +61,12 @@ jobs:
             fi
 
             if [ "$GOOS" = "windows" ]; then
-              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags "-s -w -X 'main.AppVersion=${{ github.ref_name }}'" -o "build_${GOOS}_${GOARCH}/wtd.exe" ./cmd/wtd
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags "-s -w -X 'main.AppVersion=${APP_VERSION}'" -o "build_${GOOS}_${GOARCH}/wtd.exe" ./cmd/wtd
               cd "build_${GOOS}_${GOARCH}"
               zip -r "../release_assets/go-webtoons-downloader-${FRIENDLY_OS}-${FRIENDLY_ARCH}.zip" ./*
               cd ..
             else
-              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags "-s -w -X 'main.AppVersion=${{ github.ref_name }}'" -o "build_${GOOS}_${GOARCH}/wtd" ./cmd/wtd
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags "-s -w -X 'main.AppVersion=${APP_VERSION}'" -o "build_${GOOS}_${GOARCH}/wtd" ./cmd/wtd
               cd "build_${GOOS}_${GOARCH}"
               tar -czvf "../release_assets/go-webtoons-downloader-${FRIENDLY_OS}-${FRIENDLY_ARCH}.tar.gz" ./*
               cd ..

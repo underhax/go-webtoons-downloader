@@ -29,20 +29,32 @@ jobs:
     steps:
       - name: Convert image name to lowercase
         id: prepare
+        env:
+          IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         run: |
-          IMAGE_BASE=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_BASE=$(printf '%s\n' "$IMAGE_REPO" | tr '[:upper:]' '[:lower:]')
           echo "image_base=${IMAGE_BASE}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve binary version
         id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GITHUB_REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "app_version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "app_version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "app_version=dev" >> "$GITHUB_OUTPUT"
+          RAW_VER="${INPUT_VERSION}"
+          if [ -z "$RAW_VER" ]; then
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              RAW_VER="$REF_NAME"
+            else
+              RAW_VER="dev"
+            fi
           fi
+          if [[ ! "$RAW_VER" =~ ^(dev|v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$ ]]; then
+            echo "Invalid version format: $RAW_VER" >&2
+            exit 1
+          fi
+          echo "app_version=${RAW_VER}" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata
         id: meta
@@ -95,7 +107,7 @@ jobs:
           file: Dockerfile
           push: true
           platforms: ${{ matrix.platform }}
-          tags: ${{ needs.prepare.outputs.image_base }}:${{ github.ref_name }}${{ matrix.push_tag_suffix }}
+          tags: ${{ needs.prepare.outputs.image_base }}:${{ needs.prepare.outputs.app_version }}${{ matrix.push_tag_suffix }}
           provenance: false
           build-args: |
             VERSION=${{ needs.prepare.outputs.app_version }}
@@ -118,17 +130,22 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create fat manifest
+        env:
+          BASE: ${{ needs.prepare.outputs.image_base }}
+          VERSION: ${{ needs.prepare.outputs.app_version }}
+          RAW_TAGS: ${{ needs.prepare.outputs.tags }}
         run: |
-          BASE=${{ needs.prepare.outputs.image_base }}
-          VERSION=${{ github.ref_name }}
-
-          TAGS_ARGS=""
+          TAGS_ARGS=()
           while IFS= read -r tag; do
             if [ -n "$tag" ]; then
-              TAGS_ARGS="$TAGS_ARGS --tag $tag"
+              TAGS_ARGS+=("--tag" "$tag")
             fi
-          done <<< "${{ needs.prepare.outputs.tags }}"
+          done <<< "$RAW_TAGS"
 
-          docker buildx imagetools create $TAGS_ARGS \
+          if [ ${#TAGS_ARGS[@]} -eq 0 ]; then
+            TAGS_ARGS+=("--tag" "${BASE}:${VERSION}")
+          fi
+
+          docker buildx imagetools create "${TAGS_ARGS[@]}" \
             "${BASE}:${VERSION}-amd64" \
             "${BASE}:${VERSION}-arm64"

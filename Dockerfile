@@ -13,7 +13,7 @@ RUN mkdir -p /out/data /out/etc/ssl/certs /out/usr/local/bin && \
     chmod 0700 /out/data && \
     cp /etc/ssl/certs/ca-certificates.crt /out/etc/ssl/certs/ca-certificates.crt && \
     chmod 0444 /out/etc/ssl/certs/ca-certificates.crt && \
-    CGO_ENABLED=0 go build -ldflags="-s -w -X main.AppVersion=${VERSION}" -trimpath -o /out/usr/local/bin/wtd ./cmd/wtd
+    CGO_ENABLED=0 go build -ldflags="-s -w -X 'main.AppVersion=${VERSION}'" -trimpath -o /out/usr/local/bin/wtd ./cmd/wtd
 
 FROM scratch AS app
 
