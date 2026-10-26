@@ -606,6 +606,17 @@ func TestValidateWriteTarget(t *testing.T) {
 			expectErr: ErrSymlinkForbidden,
 		},
 		{
+			name:     "temp file is named pipe",
+			destPath: "outPipe/seriesPipe/chPipe.pdf",
+			lstatFunc: func(p string) (os.FileInfo, error) {
+				if filepath.Base(p) == "chPipe.pdf.tmp" {
+					return mockFileInfo{name: filepath.Base(p), mode: os.ModeNamedPipe}, nil
+				}
+				return nil, os.ErrNotExist
+			},
+			expectErr: ErrInvalidPath,
+		},
+		{
 			name:     "lstat error on write target",
 			destPath: "outD/seriesD/chD.pdf",
 			lstatFunc: func(string) (os.FileInfo, error) {

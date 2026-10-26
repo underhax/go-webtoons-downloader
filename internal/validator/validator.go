@@ -337,5 +337,9 @@ func inspectNoSymlink(path string) error {
 		return fmt.Errorf("%w: symlink detected at %s", ErrSymlinkForbidden, path)
 	}
 
+	if !fi.Mode().IsRegular() && !fi.IsDir() {
+		return fmt.Errorf("%w: irregular file detected at %s", ErrInvalidPath, path)
+	}
+
 	return nil
 }
