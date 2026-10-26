@@ -48,7 +48,7 @@ Official pre-built standalone binaries are available on the [GitHub Releases pag
 * Privilege restriction: Drops all Linux capabilities and prevents privilege escalation.
 * IPC isolation: Private IPC namespace with disabled shared memory.
 * Network containment: Isolated bridge network with disabled inter-container communication, restricting egress strictly to external HTTPS endpoints.
-* Resource limits: Enforces CPU quotas, memory reservations, and process limits to prevent host resource starvation.
+* Resource limits: Enforces CPU quotas, memory reservations, and process limits to prevent host resource starvation (can be adjusted in `docker-compose.yaml` if downloading exceptionally large releases).
 
 ### 1. Dedicated System Account
 

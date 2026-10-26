@@ -20,10 +20,17 @@ import (
 	"strings"
 )
 
-// EndpointUpdate is the GitHub Releases API endpoint for the latest release.
-var EndpointUpdate = "https://api.github.com/repos/underhax/go-webtoons-downloader/releases/latest"
+// Endpoints and sentinels for updater execution.
+var (
+	EndpointUpdate      = "https://api.github.com/repos/underhax/go-webtoons-downloader/releases/latest"
+	ErrResponseTooLarge = errors.New("response body exceeds size limit")
+)
 
-const osWindows = "windows"
+const (
+	osWindows                = "windows"
+	maxMetadataResponseBytes = 10 << 20
+	maxAssetResponseBytes    = 64 << 20
+)
 
 func defaultNewGzipReader(r io.Reader) (io.ReadCloser, error) {
 	gzr, err := gzip.NewReader(r)
@@ -119,8 +126,13 @@ func fetchLatestRelease(ctx context.Context, client *http.Client) (*releaseInfo,
 		return nil, fmt.Errorf("unexpected status from GitHub API: %d", resp.StatusCode)
 	}
 
+	bodyBytes, err := readBoundedBody(resp.Body, maxMetadataResponseBytes)
+	if err != nil {
+		return nil, fmt.Errorf("read release response: %w", err)
+	}
+
 	var release releaseInfo
-	if decodeErr := json.NewDecoder(resp.Body).Decode(&release); decodeErr != nil {
+	if decodeErr := json.Unmarshal(bodyBytes, &release); decodeErr != nil {
 		return nil, fmt.Errorf("failed to parse GitHub API response: %w", decodeErr)
 	}
 	return &release, nil
@@ -212,7 +224,7 @@ func downloadAndVerifyAsset(ctx context.Context, client *http.Client, url, expec
 		return nil, fmt.Errorf("unexpected status downloading asset: %d", dlResp.StatusCode)
 	}
 
-	bodyBytes, err := io.ReadAll(dlResp.Body)
+	bodyBytes, err := readBoundedBody(dlResp.Body, maxAssetResponseBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read downloaded asset: %w", err)
 	}
@@ -224,6 +236,18 @@ func downloadAndVerifyAsset(ctx context.Context, client *http.Client, url, expec
 		return nil, fmt.Errorf("downloaded file checksum mismatch (expected: %s, got: %s)", expectedHashStr, actualHash)
 	}
 	return bodyBytes, nil
+}
+
+func readBoundedBody(r io.Reader, maxBytes int64) ([]byte, error) {
+	lr := io.LimitReader(r, maxBytes+1)
+	data, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, fmt.Errorf("read body stream: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, ErrResponseTooLarge
+	}
+	return data, nil
 }
 
 func replacePOSIX(body io.Reader, execPath string) error {

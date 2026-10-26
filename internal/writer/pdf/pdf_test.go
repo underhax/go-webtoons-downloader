@@ -10,8 +10,8 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/underhax/go-webtoons-downloader/internal/writer"
 	"github.com/underhax/go-webtoons-downloader/internal/writer/pdf"
@@ -172,6 +172,28 @@ func TestPDFWriter(t *testing.T) {
 	}
 }
 
+type stepCancelContext struct {
+	context.Context
+	cancelAfter int
+	calls       atomic.Int32
+}
+
+func (s *stepCancelContext) Err() error {
+	if int(s.calls.Add(1)) > s.cancelAfter {
+		return context.Canceled
+	}
+	return s.Context.Err()
+}
+
+func (s *stepCancelContext) Done() <-chan struct{} {
+	if int(s.calls.Load()) > s.cancelAfter {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return s.Context.Done()
+}
+
 func TestPDFWriterErrorsAndMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -227,16 +249,18 @@ func TestPDFWriterErrorsAndMetadata(t *testing.T) {
 		tempDir := t.TempDir()
 		destPath := filepath.Join(tempDir, "cancel_loop.pdf")
 
-		ctx, cancel := context.WithCancel(context.Background())
-		pages := make([]writer.Page, 50)
-		for i := range pages {
-			pages[i] = writer.Page{Data: jpegPage, Index: i + 1}
+		ctx := &stepCancelContext{
+			Context:     context.Background(),
+			cancelAfter: 1,
+		}
+		pages := []writer.Page{
+			{Data: jpegPage, Index: 1},
+			{Data: jpegPage, Index: 2},
 		}
 
-		time.AfterFunc(100*time.Microsecond, cancel)
 		err := w.WriteChapter(ctx, destPath, pages, nil)
-		if err == nil {
-			t.Fatalf("expected context canceled error during page generation")
+		if err == nil || !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context canceled error during page generation, got %v", err)
 		}
 	})
 

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/underhax/go-webtoons-downloader/internal/writer"
 	zipwriter "github.com/underhax/go-webtoons-downloader/internal/writer/zip"
@@ -138,6 +138,28 @@ func TestZipWriterTable(t *testing.T) {
 	}
 }
 
+type stepCancelContext struct {
+	context.Context
+	cancelAfter int
+	calls       atomic.Int32
+}
+
+func (s *stepCancelContext) Err() error {
+	if int(s.calls.Add(1)) > s.cancelAfter {
+		return context.Canceled
+	}
+	return s.Context.Err()
+}
+
+func (s *stepCancelContext) Done() <-chan struct{} {
+	if int(s.calls.Load()) > s.cancelAfter {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return s.Context.Done()
+}
+
 func TestZipWriterErrorsAndBranches(t *testing.T) {
 	t.Parallel()
 
@@ -192,16 +214,18 @@ func TestZipWriterErrorsAndBranches(t *testing.T) {
 		tempDir := t.TempDir()
 		destPath := filepath.Join(tempDir, "assembly_cancel.cbz")
 
-		ctx, cancel := context.WithCancel(context.Background())
-		pages := make([]writer.Page, 50)
-		for i := range pages {
-			pages[i] = writer.Page{Data: []byte("archive_image_bytes"), Index: i + 1}
+		ctx := &stepCancelContext{
+			Context:     context.Background(),
+			cancelAfter: 1,
+		}
+		pages := []writer.Page{
+			{Data: []byte("archive_image_bytes"), Index: 1},
+			{Data: []byte("archive_image_bytes"), Index: 2},
 		}
 
-		time.AfterFunc(100*time.Microsecond, cancel)
 		err := w.WriteChapter(ctx, destPath, pages, nil)
-		if err == nil {
-			t.Fatalf("expected context canceled error during assembly")
+		if err == nil || !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context canceled error during assembly, got %v", err)
 		}
 	})
 

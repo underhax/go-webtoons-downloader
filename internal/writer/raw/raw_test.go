@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/underhax/go-webtoons-downloader/internal/writer"
 	rawwriter "github.com/underhax/go-webtoons-downloader/internal/writer/raw"
@@ -116,6 +116,28 @@ func TestRawWriterTable(t *testing.T) {
 	}
 }
 
+type stepCancelContext struct {
+	context.Context
+	cancelAfter int
+	calls       atomic.Int32
+}
+
+func (s *stepCancelContext) Err() error {
+	if int(s.calls.Add(1)) > s.cancelAfter {
+		return context.Canceled
+	}
+	return s.Context.Err()
+}
+
+func (s *stepCancelContext) Done() <-chan struct{} {
+	if int(s.calls.Load()) > s.cancelAfter {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return s.Context.Done()
+}
+
 func TestRawWriterErrors(t *testing.T) {
 	t.Parallel()
 
@@ -155,16 +177,18 @@ func TestRawWriterErrors(t *testing.T) {
 		tempDir := t.TempDir()
 		destPath := filepath.Join(tempDir, "chapter_iter")
 
-		ctx, cancel := context.WithCancel(context.Background())
-		pages := make([]writer.Page, 50)
-		for i := range pages {
-			pages[i] = writer.Page{Data: []byte("dummy_image_data"), Index: i + 1}
+		ctx := &stepCancelContext{
+			Context:     context.Background(),
+			cancelAfter: 1,
+		}
+		pages := []writer.Page{
+			{Data: []byte("dummy_image_data"), Index: 1},
+			{Data: []byte("dummy_image_data"), Index: 2},
 		}
 
-		time.AfterFunc(100*time.Microsecond, cancel)
 		err := w.WriteChapter(ctx, destPath, pages, nil)
-		if err == nil {
-			t.Fatalf("expected context canceled error during page saving")
+		if err == nil || !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context canceled error during page saving, got %v", err)
 		}
 	})
 

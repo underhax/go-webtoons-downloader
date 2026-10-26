@@ -632,3 +632,47 @@ func TestParserWhitespaceImageAndViewerBoundary(t *testing.T) {
 		}
 	})
 }
+
+func TestReadBoundedBody(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errExpected error
+		name        string
+		content     string
+		maxBytes    int64
+	}{
+		{
+			name:        "within bounds succeeds",
+			content:     "small payload",
+			maxBytes:    100,
+			errExpected: nil,
+		},
+		{
+			name:        "exceeds bounds returns ErrResponseTooLarge",
+			content:     "payload exceeding limit",
+			maxBytes:    10,
+			errExpected: ErrResponseTooLarge,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := strings.NewReader(tc.content)
+			data, err := readBoundedBody(r, tc.maxBytes)
+			if tc.errExpected != nil {
+				if !errors.Is(err, tc.errExpected) {
+					t.Fatalf("expected error %v, got %v", tc.errExpected, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if string(data) != tc.content {
+				t.Errorf("expected %q, got %q", tc.content, string(data))
+			}
+		})
+	}
+}

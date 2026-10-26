@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -98,13 +99,13 @@ func TestDownloaderFlow(t *testing.T) {
 	ctx := context.Background()
 	destPath := "/target/001.mock"
 
-	pagesDone := 0
+	var pagesDone atomic.Int32
 	hooks := &downloader.ChapterHooks{
 		OnPagesFetched: func(_ int) func() {
 			return func() {}
 		},
 		OnPageDone: func(_, _ int) {
-			pagesDone++
+			pagesDone.Add(1)
 		},
 	}
 
@@ -112,8 +113,8 @@ func TestDownloaderFlow(t *testing.T) {
 		t.Fatalf("unexpected error downloading chapter: %v", err)
 	}
 
-	if pagesDone != 2 {
-		t.Errorf("expected 2 page callbacks, got %d", pagesDone)
+	if pagesDone.Load() != 2 {
+		t.Errorf("expected 2 page callbacks, got %d", pagesDone.Load())
 	}
 
 	if mockW.savedDest != destPath {

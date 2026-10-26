@@ -12,17 +12,18 @@ import (
 )
 
 const (
-	defaultWebtoonURL       = "https://www.webtoons.com"
-	defaultMobileWebtoonURL = "https://m.webtoons.com"
-	defaultUserAgent        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	defaultWebtoonURL        = "https://www.webtoons.com"
+	defaultMobileWebtoonURL  = "https://m.webtoons.com"
+	defaultUserAgent         = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	maxMetadataResponseBytes = 10 << 20
+	maxImageResponseBytes    = 50 << 20
 )
 
+// Sentinels returned when Webtoon API or network interactions fail.
 var (
-	// ErrUnexpectedStatus indicates a non-200 HTTP response.
 	ErrUnexpectedStatus = errors.New("unexpected http status")
-
-	// ErrNoEpisodes indicates that the series episode list was empty.
-	ErrNoEpisodes = errors.New("no episodes returned for series")
+	ErrNoEpisodes       = errors.New("no episodes returned for series")
+	ErrResponseTooLarge = errors.New("response body exceeds size limit")
 )
 
 // Client handles network interactions with Webtoons web and API endpoints.
@@ -136,8 +137,13 @@ func (c *Client) FetchChapters(ctx context.Context, series *SeriesInfo) ([]Chapt
 		}
 	}()
 
+	bodyBytes, err := readBoundedBody(resp.Body, maxMetadataResponseBytes)
+	if err != nil {
+		return nil, fmt.Errorf("decode episodes json: %w", err)
+	}
+
 	var payload episodesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
 		return nil, fmt.Errorf("decode episodes json: %w", err)
 	}
 
@@ -191,7 +197,7 @@ func (c *Client) DownloadImage(ctx context.Context, imageURL string) ([]byte, er
 		}
 	}()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := readBoundedBody(resp.Body, maxImageResponseBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read image body: %w", err)
 	}
@@ -210,12 +216,24 @@ func (c *Client) getHTML(ctx context.Context, targetURL, referer string) (string
 		}
 	}()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := readBoundedBody(resp.Body, maxMetadataResponseBytes)
 	if err != nil {
 		return "", fmt.Errorf("read html response: %w", err)
 	}
 
 	return string(data), nil
+}
+
+func readBoundedBody(r io.Reader, maxBytes int64) ([]byte, error) {
+	lr := io.LimitReader(r, maxBytes+1)
+	data, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, ErrResponseTooLarge
+	}
+	return data, nil
 }
 
 func (c *Client) executeWithRetry(ctx context.Context, targetURL, referer string) (*http.Response, error) {
