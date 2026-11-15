@@ -36,7 +36,7 @@ build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.AppVersion=$(VERSION)" -o $(BINARY) ./cmd/wtd
 
 secrets-scan:
-	gitleaks detect --source . --no-git --no-color
+	gitleaks detect --source . --no-git --no-color -v --redact
 
 verify: check test vulncheck docker-lint trivy secrets-scan
 
