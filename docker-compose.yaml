@@ -2,7 +2,7 @@ name: wtd
 
 services:
   wtd:
-    image: ghcr.io/underhax/go-webtoons-downloader:${WTD_VERSION:-latest}
+    image: ghcr.io/underhax/wtd:${WTD_VERSION:-latest}
     container_name: wtd
     hostname: wtd
     profiles:
